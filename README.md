@@ -83,10 +83,10 @@ PLOTLOGPATCH: /home/bds89/.chia/mainnet/plotter
     #таким образом, бот будет отображать прогресс засева, даже если вы сеете официальным клиентом чиа.
 LOGPATCH: /home/bds89/.chia/mainnet/log/debug.log
     #путь где чиа хранит основные логи
-PLOTS_FILE: /home/bds89/chia_tg_bot-1.0/chia_tg_bot/plots_file.sys
+PLOTS_FILE: /home/bds89/chia_tg_bot/chia_tg_bot/plots_file.sys
     #путь где бот будет хранить свой системный файл, лучше прописать по адресу бота 
     #(наверное мне стоит убрать это из конфига, но пока так)
-WATCHDOG_LOG: /home/bds89/chia_eef_bot/watchdog_log.txt
+WATCHDOG_LOG: /home/bds89/chia_tg_bot/chia_tg_bot/watchdog_log.txt
     #путь где бот будет хранить свой лог файл
 CHAT_IDS: {}
     #словарь авторизованных CHAT_IDS телеграма, с которыми бот будет общаться, 
