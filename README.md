@@ -33,24 +33,37 @@
 ## Установка:
 
 Прежде всего, вам необходимо зарегистрировать нового бота в телеграм. Обращайтесь к `@BotFather` в телеграмм с командой `/newbot` и следуйте его указаниям. Запишите полученный от `@BotFather` `TELEGRAM_BOT_TOKEN`
-<details>
- <summary>Ubuntu</summary>
- ```bash
-git clone https://github.com/bds89/chia_tg_bot.git
-cd chia_tg_bot
-sudo python3 setup.py install
- #права sudo необходимы для установки сторонних модулей: 'Flask', 'psutil', 'python-telegram-bot', 'wakeonlan', 'hddtemp'(Flask пока не используется, есть планы написать Android приложение)
-gedit chia_tg_bot/config.yaml
-sudo apt-get install smartmontools   #по желанию, для отображения информации о ваших NVME/SSD дисках
- ```
-</details>
+
+  <summary>Ubuntu </summary>
+  
+  ```bash
+  git clone https://github.com/bds89/chia_tg_bot.git
+  cd chia_tg_bot
+  sudo python3 setup.py install   # права sudo необходимы для установки сторонних модулей: 'Flask', 'psutil', 'python-telegram-bot', 'wakeonlan', 'hddtemp'(Flask пока не используется, есть планы написать Android приложение)
+  gedit chia_tg_bot/config.yaml   #Редактируем config.yaml
+  sudo apt-get install smartmontools   #по желанию, для отображения информации о ваших NVME/SSD дисках
+  ```
+
 Для харвестеров и для Full NODE используются одни и те-же скрипты бота, различие только в config.yaml. Поэтому устанавливаем бот на Full NODE компьютер и на каждый харвестер.
 
 ## Запуск:
-> 1. python3 chia_tg_bot/chia_tg_bot/chia_bot.py -s"
+  ```bash
+  python3 chia_tg_bot/chia_tg_bot/chia_bot.py -s
+  ```
 
 Вы можете добавить запуск бота в автозагрузку без параметра "-s", в таком случае, после запуска бот удалит все временные файлы для создаваемых плотов, попытается включить харвестеры через WakeOnLAN и пришлет уведомление о запуске. Необходимо для возобновления работы фермы после перерыва питания.
 
+## Обновление:
+Сохраните ваш config.yaml
+  ```bash
+  cd chia_tg_bot
+  git pull origin
+  sudo python3 setup.py install
+  ```
+  Скопируйте ваш сохраненный `config.yaml` в `chia_tg_bot/chia_tg_bot`
+  
+  Вы можете перезапутить бота, не останавливая процессы плоттинга и перемещения файлов. Для этого в системном мониторе Ubuntu убейте 2 процесса `chia_tg_bot.py` не трогая процессы `plots_creator.py` и `plot_move.py`
+  
 ## Редактирование config.yaml:
 ```yaml
 FULL_NODE: true/false
@@ -150,3 +163,7 @@ SSD_DEVICES:
     #Ключи(слева) имя диска отображаемое в чате, значения(справа) 
 ```
 
+## Остальное
+Это мой первый проект на Python, но мне он помог зассеять более 100Тб дисков.
+Если бот окажется вам полезным можете поддержать проект:
+> xch1w36ffas4xw40w6fsa8hqypccena3jen0w7heewjtf4yepazrk3tqznvut4
