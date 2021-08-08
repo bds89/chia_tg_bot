@@ -1,1 +1,4 @@
 chia_tg_bot/__pycache__/
+build/
+chia_tg_bot.egg-info/
+dist/
