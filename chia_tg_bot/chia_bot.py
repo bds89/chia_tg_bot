@@ -1522,7 +1522,6 @@ def plot_manager():
                 temp2 = None
                 dest = None
                 Disk_list = disk_list(CONFIG_DICT["MIN_DISK_TOTAL"]*1000000000, CONFIG_DICT["MIN_DISK_FREE"]*1000000000)
-                # Disk_list.pop("/", 'some')   # Только для отладки
                 if not Disk_list:
                     #Не нашел куда сеять
                     last_time = datetime.datetime.now()
@@ -1588,67 +1587,70 @@ def plot_manager():
                     sorted_for_sort= {k: v for k, v in sorted_tuples}
                     for key in sorted_for_sort.keys():
                         plots_sizes_sorted[key] = plots_sizes[key]
-                    if plots_sizes_sorted[list(plots_sizes_sorted)[0]][33] > 0: size = 33
-                    else: size = 32
-
-                    #Выбираем темп папку, сначала САТА
-                    for patch, free in Disk_list.items():
-                        if re.search(r"[Ss][Aa][Tt][Aa]", patch):
-                            busy_sata = []                        
-                            for plot in all_plots:
-                                if plot.__class__.__name__ == "Plot":
-                                    if plot.temp == patch or plot.dest == patch:
-                                        busy_sata.append(patch)
-                            if (free - PLOTS_SIZES_PLOTTING[size] * K) >= 0 and patch not in busy_sata and (list(plots_sizes_sorted)[0] == patch or que["SATA_AS_SSD"] == "yes"):
-                                temp = patch
-                                break
-                    
-                    if not temp and CONFIG_DICT["SSD"]:
-                        #Найдем ССД на которых есть свободное место
-                        ssd_chart = {}
-                        for patch, disk in CONFIG_DICT["SSD"].items():
-                            free = psutil.disk_usage(disk).free
-                            total_space = psutil.disk_usage(disk).used + free
-                            for plot in all_plots:
-                                if plot.__class__.__name__ == "Plot":
-                                    if plot.temp == patch:
-                                        total_space -= PLOTS_SIZES_PLOTTING[size] * K
-                            if free >= PLOTS_SIZES_PLOTTING[size] * K and total_space >= PLOTS_SIZES_PLOTTING[size] * K:
-                                ssd_chart[patch] = 0
-                            #Сделаем рейтинг ССД
-                            for plot in all_plots:
-                                if plot.__class__.__name__ == "Plot":
-                                    if plot.temp == patch:
-                                        ssd_chart[patch] += 1
-                        sorted_tuples = sorted(ssd_chart.items(), key=lambda item: item[1])
-                        sorted_ssd_chart = {k: v for k, v in sorted_tuples}
-                        if sorted_ssd_chart:
-                            temp = list(sorted_ssd_chart.keys())[0]
-                    if not temp:
-                        #Не нашел чем сеять
-                        last_time = datetime.datetime.now()
-                        time.sleep(5)
-                        continue
-                    
-                    #Решим что делать с temp2
-                    temp2_to_dest_num = 0
-                    for plot in all_plots:
-                        if plot.__class__.__name__ == "Plot":
-                            if plot.temp2 == list(plots_sizes_sorted)[0]:
-                                temp2_to_dest_num += 1
-                    if temp2_to_dest_num < 2:    #Число плотов, которые будут сеятся на этот диск без копирования в конце
-                        temp2 = list(plots_sizes_sorted)[0]
-                        dest = temp2
-                    else:
-                        temp2 = None
-                        dest = list(plots_sizes_sorted)[0]
-                    if not dest:
-                        #Не нашел куда сеять
-                        last_time = datetime.datetime.now()
-                        time.sleep(5)
-                        continue
-                    # Создаем плот
-                    create_plot(temp, dest, temp2, size)
+                    print(plots_sizes_sorted)
+                    #Будем пробовать сеять подходящий вариант
+                    for i in range(len(plots_sizes_sorted)):
+                        print(i)
+                        if plots_sizes_sorted[list(plots_sizes_sorted)[i]][33] > 0: size = 33
+                        else: size = 32
+                        #Выбираем темп папку, сначала САТА
+                        for patch, free in Disk_list.items():
+                            if re.search(r"[Ss][Aa][Tt][Aa]", patch):
+                                busy_sata = []                        
+                                for plot in all_plots:
+                                    if plot.__class__.__name__ == "Plot":
+                                        if plot.temp == patch or plot.dest == patch:
+                                            busy_sata.append(patch)
+                                if (free - PLOTS_SIZES_PLOTTING[size] * K) >= 0 and patch not in busy_sata and (list(plots_sizes_sorted)[i] == patch or que["SATA_AS_SSD"] == "yes"):
+                                    temp = patch
+                                    break
+                        
+                        if not temp and CONFIG_DICT["SSD"]:
+                            #Найдем ССД на которых есть свободное место
+                            ssd_chart = {}
+                            for patch, disk in CONFIG_DICT["SSD"].items():
+                                free = psutil.disk_usage(disk).free
+                                total_space = psutil.disk_usage(disk).used + free
+                                for plot in all_plots:
+                                    if plot.__class__.__name__ == "Plot":
+                                        if plot.temp == patch:
+                                            total_space -= PLOTS_SIZES_PLOTTING[size] * K
+                                if free >= PLOTS_SIZES_PLOTTING[size] * K and total_space >= PLOTS_SIZES_PLOTTING[size] * K:
+                                    ssd_chart[patch] = 0
+                                #Сделаем рейтинг ССД
+                                for plot in all_plots:
+                                    if plot.__class__.__name__ == "Plot":
+                                        if plot.temp == patch:
+                                            ssd_chart[patch] += 1
+                            sorted_tuples = sorted(ssd_chart.items(), key=lambda item: item[1])
+                            sorted_ssd_chart = {k: v for k, v in sorted_tuples}
+                            if sorted_ssd_chart:
+                                temp = list(sorted_ssd_chart.keys())[0]
+                        if not temp:
+                            #Не нашел чем сеять
+                            continue
+                        
+                        #Решим что делать с temp2
+                        temp2_to_dest_num = 0
+                        for plot in all_plots:
+                            if plot.__class__.__name__ == "Plot":
+                                if plot.temp2 == list(plots_sizes_sorted)[i]:
+                                    temp2_to_dest_num += 1
+                        if temp2_to_dest_num < 2:    #Число плотов, которые будут сеятся на этот диск без копирования в конце
+                            temp2 = list(plots_sizes_sorted)[i]
+                            dest = temp2
+                        else:
+                            temp2 = None
+                            dest = list(plots_sizes_sorted)[i]
+                        if not dest:
+                            #Не нашел куда сеять
+                            continue
+                        # Создаем плот
+                        create_plot(temp, dest, temp2, size)
+                        break
+                    last_time = datetime.datetime.now()
+                    time.sleep(5)
+                    continue
 
 #Если сеем только к32, старый код
                 else:
@@ -2363,7 +2365,7 @@ if __name__ == '__main__':
 
     threading.Thread(target=LogParser, args=(CONFIG_DICT["LOGPATCH"],)).start()  #читаем логи
     # Process(target=app.run(host='0.0.0.0')).start()     -Flask
-    # threading.Thread(target=not_sleep, args=(1,)).start()  #not_sleep
+    threading.Thread(target=not_sleep, args=(1,)).start()  #not_sleep
     #Для фермы1
     if CONFIG_DICT["FULL_NODE"]:
         threading.Thread(target=watchdog).start()  #WatchDog
