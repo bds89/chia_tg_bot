@@ -1587,10 +1587,8 @@ def plot_manager():
                     sorted_for_sort= {k: v for k, v in sorted_tuples}
                     for key in sorted_for_sort.keys():
                         plots_sizes_sorted[key] = plots_sizes[key]
-                    print(plots_sizes_sorted)
                     #Будем пробовать сеять подходящий вариант
                     for i in range(len(plots_sizes_sorted)):
-                        print(i)
                         if plots_sizes_sorted[list(plots_sizes_sorted)[i]][33] > 0: size = 33
                         else: size = 32
                         #Выбираем темп папку, сначала САТА
@@ -2365,7 +2363,7 @@ if __name__ == '__main__':
 
     threading.Thread(target=LogParser, args=(CONFIG_DICT["LOGPATCH"],)).start()  #читаем логи
     # Process(target=app.run(host='0.0.0.0')).start()     -Flask
-    threading.Thread(target=not_sleep, args=(1,)).start()  #not_sleep
+    # threading.Thread(target=not_sleep, args=(1,)).start()  #not_sleep
     #Для фермы1
     if CONFIG_DICT["FULL_NODE"]:
         threading.Thread(target=watchdog).start()  #WatchDog
