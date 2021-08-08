@@ -66,14 +66,14 @@
 ## Редактирование config.yaml:
 ```yaml
 FULL_NODE: true/false
-    #true если на данном компьютере запущена FULL NODE сервис чиа, 
+    #true если на данном компьютере запущен FULL NODE сервис чиа, 
     #false если на данном компьютере запущен только харвестер чиа
 API_KEY_COINMARKETCUP: 606424d2-7082-4af8-a5fa-123456789123
     #бот берет актуальный курс чиа с https://coinmarketcap.com/ и переводит его в рубли, 
     #получите API_KEY на https://pro.coinmarketcap.com/signup, 
     #или пропишите в этой строке: "API_KEY_COINMARKETCUP: false" тогда бот будет показывать баланс только в чиа
 TELEGRAM_BOT_TOKEN: 1651541335:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-    #токен полученный в п. 4.2 установки бота
+    #токен полученный от @BotFather
 F_KEY: 12345.....аааа
     #Farmer public key чиа
 POOL_KEY: xch.......aaaa
