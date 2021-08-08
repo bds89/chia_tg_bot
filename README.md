@@ -1,6 +1,6 @@
 # Chia telegram bot
 
-Помогает управлять фермой с несколькими харвестерами через телеграмм. Потдерживает только Linux, тестировался в Ubuntu 20.04 и 21.04. Представляет из себя 3 скрипта chia_bot.py, plot_move.py, plots_creator.py.
+Помогает управлять фермой с несколькими харвестерами через телеграмм. На данный момент потдерживает только Linux, тестировался в Ubuntu 20.04 и 21.04. Представляет из себя 3 скрипта chia_bot.py, plot_move.py, plots_creator.py.
 
 <img src="screenshots/chia_stat.jpg" width="400"> <img src="screenshots/balance_info.jpg" width="400">
 
