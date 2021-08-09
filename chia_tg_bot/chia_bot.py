@@ -297,7 +297,7 @@ def get_status():
             file_dict[filename] = os.path.getmtime(CONFIG_DICT["PLOTLOGPATCH"]+"/"+filename)
         sorted_tuples = sorted(file_dict.items(), key=lambda item: item[1], reverse=True)
         sorted_file_dict = {k: v for k, v in sorted_tuples}
-    else: file_list = []
+    else: sorted_file_dict = []
 
     try:
         with open(globals()["CONFIG_DICT"]["PLOTS_FILE"], "rb") as f:
@@ -306,8 +306,8 @@ def get_status():
         all_plots = []
     list_of_plots_name = []
 
-    num_log_files_to_open = CONFIG_DICT["NUM_PARALLEL_PLOTS"] + 20 #БУдем открывать столько последних файлов
-    for filename in sorted_file_dict.keys():
+    sorted_file_list = list(sorted_file_dict)
+    for filename in sorted_file_list[:CONFIG_DICT["NUM_PARALLEL_PLOTS"] + 20]:
         with open(CONFIG_DICT["PLOTLOGPATCH"]+"/"+filename, 'r') as f:
             log = f.read()
         try:
@@ -340,8 +340,6 @@ def get_status():
                         progress_plots.append(log.count("\n"))
             except(IndexError):
                 print("Призошло исключение в функции get_status.re.(filename:"+filename+")")
-        num_log_files_to_open -= 1
-        if num_log_files_to_open <= 0: break
     try:
         num_string_100 = num_string / num_finish_files
     except(ZeroDivisionError):
@@ -2348,10 +2346,6 @@ if __name__ == '__main__':
             send_magic_packet(*CONFIG_DICT["HARVESTER_MAC"])
         del_trash()
         message_to_all("Бот запущен. Проверьте, возможно было отключение электричества", None)
-
-    # Process(target=main).start()
-    # if not CONFIG_DICT["HARVESTER_ADDR"]:
-    #     Process(target=socket_server).start()
 
     Process(target=plot_manager).start()
     que = {"AUTO_P":CONFIG_DICT["AUTO_P"], 
