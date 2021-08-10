@@ -1,4 +1,4 @@
-import logging, re, os, json, yaml, datetime, psutil, time, sys, pickle, socket, threading
+import logging, re, os, json, yaml, datetime, psutil, time, sys, pickle, socket, threading, subprocess
 from subprocess import Popen, PIPE
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Bot, ReplyKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters, ConversationHandler
@@ -199,7 +199,8 @@ def help_command(arg=None):
 Для выбора таблицы начала следующего плота наберите /table <int>\n\
 Для изменения настроек засева наберите /set_plot_config <int>\n\
 Для включения/отключения отображения бесшумных уведомлений наберите /notify <on/off>\n\
-Для просмотра журнала watchdog наберите /log <int> (часов)\n\
+Для просмотра журнала watchdog наберите /log <float> (часов)\n\
+Для удаления директорий из чиа в которых нет плотов и добавления директорий в которых найдены плоты наберите /check_plots_dirs 1\n\
 Для наблюдением за количеством плотов прошедших фильтр наберите /filter <int> (>= количества плотов прошедших фильтр)\n\n\
 Не все плоты могут быть отменены. При засеве разных плотов с одинаковыми параметрами, бот не сможет найти и закрыть определенный процесс chia\
 Для корректной работы кнопок при создании плота, из-за ограничений Telegram, абсолютный путь к корню ваших дисков не должен превышать 52 байта UTF-8(52 символа для латинского алфавита)'
@@ -1825,7 +1826,7 @@ def watchdog():
                 stat["Sync status: "] = "None"
                 stat["Farming status: "] = "None"
                 stat["Plot count for all harvesters: "] = 0
-            if stat["Sync status: "] != "Synced" or stat["Farming status: "] != "Farming" or stat["Plot count for all harvesters: "] < (plot_count_all_harvesters - 10):
+            if stat["Sync status: "] != "Synced" or stat["Farming status: "] != "Farming" or stat["Plot count for all harvesters: "] < (plot_count_all_harvesters - 2):
                 try:
                         f = open(CONFIG_DICT["WATCHDOG_LOG"])
                         log = []
@@ -1855,6 +1856,7 @@ def watchdog():
                 log = "{0}    Sync status:{1}    Farming status:{2}    Plot count:{3} (было {4})\n".format(str(timestamp_now), stat["Sync status: "], stat["Farming status: "], stat["Plot count for all harvesters: "], plot_count_all_harvesters)
                 f.write(log)
                 f.close()
+                globals()["plot_count_all_harvesters"] = stat["Plot count for all harvesters: "]
         
 def set_watchdog_interval(arg=None):
     if arg and str(arg).isdigit():
@@ -1989,9 +1991,55 @@ def set_filter(arg=None, chat_id=None):
         retur = {"text":text}
         return(retur)
 
+def check_plots_dirs(arg=None):
+    if arg and int(arg)==1:
+    #сначала удалим директории в которых не найдем плотов
+        process = subprocess.run(['/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia plots show'], check=True, shell=True, stdout=subprocess.PIPE, universal_newlines=True)
+        output = process.stdout
+        plot_dirs = re.findall(r"\n(/.*)", output)
+        plot_dirs_dict = {}
+        for dir in plot_dirs:
+            plot_dirs_dict[dir] = False
+            plots_on = plots_on_disk(dir)
+            for key in plots_on.keys():
+                if key.isdigit():     
+                    plot_dirs_dict[dir] = True
+                    break
+        text = ""
+        for dir, have_plot in plot_dirs_dict.items():
+            if not have_plot:
+                process = subprocess.run(['/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia plots remove -d "'+dir+'"'], check=True, shell=True, stdout=subprocess.PIPE, universal_newlines=True)
+                text += process.stdout
+                plot_dirs.remove(dir)
+    #добавим директории в которых найдем плоты
+        text += "\n"
+        disk_dict = disk_list(CONFIG_DICT["MIN_DISK_TOTAL"]*1000000000, 1)
+        added_dirs_list = []
+        for patch in disk_dict.keys():
+            plots_on = plots_on_disk(patch)
+            for key in plots_on.keys():
+                match = re.findall(r"^(/.+)/plot-k\d{2}.+plot$", key)
+                if match and not match[0] in plot_dirs and not match[0] in added_dirs_list:
+                    process = subprocess.run(['/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia plots add -d "'+match[0]+'"'], check=True, shell=True, stdout=subprocess.PIPE, universal_newlines=True)
+                    text += process.stdout
+                    added_dirs_list.append(match[0])
+        if text == "\n":
+            text = "Список директорий не именился"
+        retur = {"text":text}
+        return(retur)
+    else:
+        text = 'Для удаления директорий, в которых нет плотов и добавления директорий в которых я найду плоты, набери: /check_plots_dirs 1'
+        retur = {"text":text}
+        return(retur)
+
 def show_log(arg=None):
-    if arg and str(arg).isdigit():
-        arg = float(arg)
+    if arg:
+        try:
+            arg = float(arg)
+        except(ValueError):
+            text = 'Набери: /log <float> (часов)'
+            retur = {"text":text}
+            return(retur)
         if arg < 0:
             text ='Число должно быть положительным'
             retur = {"text":text}
@@ -2013,7 +2061,7 @@ def show_log(arg=None):
         return(retur)
     
     else:
-        text = 'Набери: /log <int> (часов)'
+        text = 'Набери: /log <float> (часов)'
         retur = {"text":text}
         return(retur)
 
@@ -2106,7 +2154,8 @@ def my_command_handler(update: Update, context: CallbackContext):
                         '/notify':'set_notify(arg="'+arg+'", chat_id='+chat_id+')',
                         '/filter':'set_filter(arg="'+arg+'", chat_id='+chat_id+')',
                         '/log':'show_log("'+arg+'")',
-                        '/set_plot_config':'set_plot_config("'+arg+'")'}
+                        '/set_plot_config':'set_plot_config("'+arg+'")',
+                        '/check_plots_dirs':'check_plots_dirs("'+arg+'")'}
         command_dict.update(command_dict_without_arg)
         print(update.message.chat.first_name+"---->"+command+" "+arg)
         if int(context.user_data["farm"]) == 1:
@@ -2158,6 +2207,7 @@ def main() -> None:
     updater.dispatcher.add_handler(CommandHandler("filter", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("log", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("set_plot_config", my_command_handler, USERS_FILTER))
+    updater.dispatcher.add_handler(CommandHandler("check_plots_dirs", my_command_handler, USERS_FILTER))
 
     # Start the Bot
     updater.start_polling()
@@ -2198,7 +2248,7 @@ def plots_check_time(log):
             globals()["plot_count"] = int(matches[0][5])
         if globals()["plot_count"] and (int(matches[0][5]) + 1) < int(globals()["plot_count"]):
             message_to_all("Уменьшилось количество плотов с {0} до {1}, проверьте диски".format(globals()["plot_count"], matches[0][5]), None)
-            globals()["plot_count"] = matches[0][5]
+        globals()["plot_count"] = matches[0][5]
 
         if int(matches[0][3]) > 0:
             message_to_all("Найдено доказательство! в: {0}".format(matches[0][1]), None)
@@ -2240,6 +2290,18 @@ def plots_check_time(log):
         f.close()
 
         message_to_all("Долгий отклик от плота: {0}. ({1} сек.)".format(matches[0][0], round(float(matches[0][1]), 2)), True)
+
+    matches = re.findall(
+                r" ([WE][AR][R][NO][IR][N ][G ]) +(.+)$", log
+            )
+    if matches:
+        f = open(CONFIG_DICT["WATCHDOG_LOG"], 'a')
+
+        dt = datetime.datetime.now()
+        timestamp_now = datetime.datetime.fromtimestamp(time.mktime(dt.timetuple()))
+        log = "{0}    {1}    {2}\n".format(str(timestamp_now), matches[0][0], matches[0][1])
+        f.write(log)
+        f.close()
 
 def del_trash():
     try:
@@ -2316,7 +2378,7 @@ if __name__ == '__main__':
 
     plot_count = None
 
-    START_TEXT = 'Выберите действие:\n/wd <секунд>\n/parallel_plots <int>; /table <int>\n/set_plot_config; \n/notify <on/off>; /filter <int>\n/log <int> (часов)'
+    START_TEXT = 'Выберите действие:\n/wd <секунд>\n/parallel_plots <int>; /table <int>\n/set_plot_config; \n/notify <on/off>; /filter <int>\n/check_plots_dirs 1\n/log <float> (часов)'
 
     K = 1024**3
     PLOTS_SIZES = {25:0.6, 32:101.4, 33:208.8, 34:429.8, 35:884.1}

@@ -44,6 +44,8 @@ def plots_on_disk(patch, list={"num_del":0}, old=False, dell=False, size=False, 
     depth += 1
     if len(list) == 1 and "num_del" in list:
         list={"num_del":0}
+    if not os.path.exists(patch):
+        return(list)
     for name in os.listdir(patch):
         obj = patch+"/"+name
         try:
