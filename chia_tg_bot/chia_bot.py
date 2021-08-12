@@ -119,6 +119,47 @@ def disk_list(min_size, min_free=None, full=None):
                 else:
                     Disk_list[partitions[0]] = [d[0], d[1], d[2], d[3], partitions[1]]
     return(Disk_list)
+
+def sys_crit_params():
+    text = ""
+    #SSD temp
+    for key, value in CONFIG_DICT["SSD_DEVICES"].items():
+        command = ('sudo smartctl -A -j '+value).split()
+        sudo_password = CONFIG_DICT["SUDO_PASS"]
+        p = Popen(['sudo', '--stdin'] + command, stdout=PIPE, stdin=PIPE, stderr=PIPE,
+                universal_newlines=True)
+        cli = p.communicate(sudo_password + '\n')[0]
+        data = json.loads(cli)
+        final_dict = dict_open(data)
+        if final_dict["current"] >= CONFIG_DICT["CRITICAL_PARAMS"]["SSD_temperature"]:
+            text += "SSD temperature "+str(key)+" = "+str(final_dict["current"])+"℃\n"
+    #Psutil params
+    USED_RAM = psutil.virtual_memory()[2]
+    if USED_RAM >= CONFIG_DICT["CRITICAL_PARAMS"]["USED_RAM%"]:
+        text += "USED_RAM = "+str(USED_RAM)+"%\n"
+    CPU_temp = psutil.sensors_temperatures(fahrenheit=False)["coretemp"][0][1]
+    if CPU_temp >= CONFIG_DICT["CRITICAL_PARAMS"]["CPU_temperature"]:
+        text += "CPU_temperature = "+str(CPU_temp)+"℃\n"
+    #Disk temp
+    Disk_list = disk_list(min_size=250*1000000000, full=False)
+    Disk_list_keys = list(Disk_list.keys())
+    Disk_list_keys.sort()
+    for key in Disk_list_keys:
+        command = ('sudo hddtemp -n '+key).split()
+        sudo_password = CONFIG_DICT["SUDO_PASS"]
+
+        p = Popen(['sudo', '--stdin'] + command, stdout=PIPE, stdin=PIPE, stderr=PIPE,
+                universal_newlines=True)
+        cli = p.communicate(sudo_password + '\n')[0]
+        if len(cli) > 4 or not cli:
+            pass
+        else: 
+            HDD_temp = int(cli[:-1])
+            if HDD_temp >= CONFIG_DICT["CRITICAL_PARAMS"]["HDD_temperature"]:
+                text += "HDD temperature "+key+" = "+str(HDD_temp)+"℃\n"
+    return text
+
+
 def start(update: Update, context: CallbackContext) -> None:
     if update["message"]["chat"]["id"] in auth_num and auth_num[update["message"]["chat"]["id"]] > 4:
         update.message.reply_text('Превышено количество попыток, обратитесь к администратору')
@@ -1591,17 +1632,37 @@ def plot_manager():
                         if plots_sizes_sorted[list(plots_sizes_sorted)[i]][33] > 0: size = 33
                         else: size = 32
                         #Выбираем темп папку, сначала САТА
-                        for patch, free in Disk_list.items():
-                            if re.search(r"[Ss][Aa][Tt][Aa]", patch):
-                                busy_sata = []                        
+                        #Сначала сам на себя, если это САТА
+                        patch = list(plots_sizes_sorted)[i]
+                        if re.search(r"[Ss][Aa][Tt][Aa]", patch) and (Disk_list[patch] - PLOTS_SIZES_PLOTTING[size] * K - PLOTS_SIZES[size] * K) >= 0:
+                            busy_sata = []
+                            for plot in all_plots:
+                                if plot.__class__.__name__ == "Plot":
+                                    if plot.temp == patch or plot.dest == patch:
+                                        busy_sata.append(patch)
+                            if patch not in busy_sata: temp = patch
+                        #Если сам на себя не может, поищем другую САТА
+                        if not temp:
+                            for patch, free in Disk_list.items():
+                                if re.search(r"[Ss][Aa][Tt][Aa]", patch):
+                                    busy_sata = []                        
+                                    for plot in all_plots:
+                                        if plot.__class__.__name__ == "Plot":
+                                            if plot.temp == patch or plot.dest == patch:
+                                                busy_sata.append(patch)
+                                    if (free - PLOTS_SIZES_PLOTTING[size] * K) >= 0 and patch not in busy_sata and (list(plots_sizes_sorted)[i] != patch and que["SATA_AS_SSD"] == "yes"):
+                                        temp = patch
+                                        break
+                        #Если нечем больше сеять, все-таки попробуем сам на себя, под завязку, если это САТА
+                        if not temp:
+                            patch = list(plots_sizes_sorted)[i]
+                            if re.search(r"[Ss][Aa][Tt][Aa]", patch) and (Disk_list[patch] - PLOTS_SIZES_PLOTTING[size] * K) >= 0:
+                                busy_sata = []
                                 for plot in all_plots:
                                     if plot.__class__.__name__ == "Plot":
                                         if plot.temp == patch or plot.dest == patch:
                                             busy_sata.append(patch)
-                                if (free - PLOTS_SIZES_PLOTTING[size] * K) >= 0 and patch not in busy_sata and (list(plots_sizes_sorted)[i] == patch or que["SATA_AS_SSD"] == "yes"):
-                                    temp = patch
-                                    break
-                        
+                                if patch not in busy_sata: temp = patch
                         if not temp and CONFIG_DICT["SSD"]:
                             #Найдем ССД на которых есть свободное место
                             ssd_chart = {}
@@ -1857,6 +1918,9 @@ def watchdog():
                 f.write(log)
                 f.close()
                 globals()["plot_count_all_harvesters"] = stat["Plot count for all harvesters: "]
+            sys_params = sys_crit_params()
+            if sys_params:
+                message_to_all("Watchdog alert❗\n"+sys_params, None)
         
 def set_watchdog_interval(arg=None):
     if arg and str(arg).isdigit():

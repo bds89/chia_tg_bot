@@ -51,7 +51,9 @@ if __name__ == '__main__':
                     os.mkdir(clear_param["-d "])
                 except(OSError):
                     pass
-                subprocess.call("mv '"+key+"' '"+clear_param["-d "]+"'", shell=True)
+                plot_name = re.findall(r"(plot-k\d{2}.+)plot$", key)[0]
+                subprocess.call("mv '"+key+"' '"+clear_param["-d "]+"/"+plot_name+"move'", shell=True)
+                subprocess.call("mv '"+clear_param["-d "]+"/"+plot_name+"move' '"+clear_param["-d "]+"/"+plot_name+"plot'", shell=True)
                 break
 
         with open(CONFIG_DICT["PLOTS_FILE"], "rb") as f:
