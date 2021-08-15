@@ -88,6 +88,7 @@ HARVESTER_MAC:
     #Если харвестеров нет, либо вы не хотите включать их таким образом оставте параметр пустым: "HARVESTER_MAC: false"
 PASSWORD: '0'   
     #задайте пароль вашему боту, который потребуется для авторизации вас после команды /start
+LANGUAGE: english
 SSD_DEVICES:
   System disk: /dev/sdb2
   Dop disk: /dev/sda1

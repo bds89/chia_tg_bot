@@ -16,8 +16,7 @@ def socket_client(host, port, request):
         try:
             mySocket.connect((host,port))
         except(ConnectionRefusedError):
-            text = "Не смог подключиться к "+str(host)+"\n"
-            print(text)
+            text = "Can't connect to "+str(host)+"\n"
             retur = {"text":text}
             return retur
         mySocket.send(pickle.dumps(request))
@@ -32,7 +31,7 @@ def socket_client(host, port, request):
                     break
                 data += dat
         if not data:
-            data = {"text": "Не получил данных\n"}
+            data = {"text": "Not received data\n"}
             mySocket.close()
             return data
         mySocket.close()

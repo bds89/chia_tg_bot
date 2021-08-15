@@ -1,14 +1,17 @@
 import re, yaml, sys, os, pickle, subprocess, time, datetime
 from plots_creator import Plot, get_script_dir, Plots, plots_on_disk, socket_client
 from telegram import Bot
-
+from language import *
 
 if __name__ == '__main__':
+    K = 1.024**3
+    PLOTS_SIZES = {25:0.6, 32:101.4, 33:208.8, 34:429.8, 35:884.1}
     param = sys.argv
     CONFIG_PATCH = get_script_dir()+"/config.yaml"
 
     with open(CONFIG_PATCH) as f:
-        CONFIG_DICT = yaml.load(f.read(), Loader=yaml.FullLoader)  
+        CONFIG_DICT = yaml.load(f.read(), Loader=yaml.FullLoader)
+    LANG = eval(CONFIG_DICT["LANGUAGE"])
     bot = Bot(token=CONFIG_DICT["TELEGRAM_BOT_TOKEN"])
 
     param = sys.argv
@@ -64,17 +67,16 @@ if __name__ == '__main__':
                     all_plots.remove(plot)
                     del p
                     break
-        # if int(clear_param["-n "]) - i > 0:
-        #     p = Plots(clear_param["-i "], clear_param["-s "], clear_param["-z "], clear_param["-n "], clear_param["-d "], int(clear_param["-n "])-i)
-        #     all_plots.append(p)
         with open(CONFIG_DICT["PLOTS_FILE"], "wb") as f:
             pickle.dump(all_plots, f)
         i += 1
     
-    seconds = round(time.time() - time_start)
-    time_move = str(datetime.timedelta(seconds=seconds))
-
-    text="Закончил перемещение {0} плотов из {1} в {2}\nВремя выполнения: {3}\n".format(clear_param["-n "], clear_param["-s "], clear_param["-d "], time_move)
+    seconds = time.time() - time_start
+    time_move = str(datetime.timedelta(seconds=round(seconds)))
+    speed = round(((PLOTS_SIZES[int(clear_param["-z "])] * K * int(clear_param["-n "])) / seconds) * 1000, 1)
+    text="{0} {1} {2} {3} {4} {5}\n{6} {7} ({8} MB/s)\n".format(LANG["finished_move"], 
+                                                                        clear_param["-n "], LANG["plots_from"], 
+                                                                        clear_param["-s "], LANG["to"], clear_param["-d "], LANG["time_done"], time_move, speed)
     if CONFIG_DICT["NODE_LIST"]:
         q = {"chat_id": clear_param["-i "], "text": text, "disable_notification": False}
         data = {"data": 'message(chat_id=q["chat_id"], text=q["text"], disable_notification=q["disable_notification"], node=node)', "q": q}

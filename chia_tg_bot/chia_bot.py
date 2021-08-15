@@ -8,7 +8,7 @@ from requests.exceptions import ConnectionError, Timeout, TooManyRedirects
 from wakeonlan import send_magic_packet
 from flask import Flask, request
 from plots_creator import Plot, get_script_dir, Plots, plots_on_disk, socket_client
-
+from language import *
 # Enable logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.WARNING
@@ -16,7 +16,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-PASSWORD = range(1)
+PASSWORD, LANGUAGE = range(2)
 app = Flask(__name__)
 
 def socket_server(port):
@@ -54,11 +54,11 @@ def socket_server(port):
 
 #Харвестеры будут отправлять свои клавиатуры фулл ноде
 def get_keyboard():
-    keyboard = [[InlineKeyboardButton("Статус Chia Blockchain", callback_data='get_status()'), InlineKeyboardButton("System info", callback_data='get_sys_info()')],
+    keyboard = [[InlineKeyboardButton(LANG["chia_stat"], callback_data='get_status()'), InlineKeyboardButton("System info", callback_data='get_sys_info()')],
                 []]
     line = InlineKeyboardButton("SSD info", callback_data='get_ssd_status()')
     if CONFIG_DICT["SSD_DEVICES"]: keyboard[1].append(line)
-    line = InlineKeyboardButton("Узнать баланс", callback_data='get_balance()')
+    line = InlineKeyboardButton(LANG["get_balance"], callback_data='get_balance()')
     if CONFIG_DICT["FULL_NODE"]: keyboard[1].append(line)
     return keyboard
 
@@ -82,9 +82,10 @@ def num_to_scale(value, numsimb):
 def time_delta_rus(delta):
     match = re.findall(r"(\d+) day.*,(.+)$", delta)
     if match:
-        if int(match[0][0][-1:]) == 1: days = "день"
-        elif int(match[0][0][-1:]) > 1 and int(match[0][0][-1:]) < 5: days = "дня"
-        else: days = "дней"
+        if len(match[0][0]) == 1 and int(match[0][0][-1:]) == 1: 
+            days = LANG["den"]
+        elif int(match[0][0][-1:]) > 1 and int(match[0][0][-1:]) < 5: days = LANG["dnya"]
+        else: days = LANG["dney"]
         return("{0} {1} {2}".format(match[0][0], days, match[0][1]))
     else:
         return(delta)
@@ -137,6 +138,11 @@ def sys_crit_params():
     USED_RAM = psutil.virtual_memory()[2]
     if USED_RAM >= CONFIG_DICT["CRITICAL_PARAMS"]["USED_RAM%"]:
         text += "USED_RAM = "+str(USED_RAM)+"%\n"
+        if psutil.swap_memory()[0] == 0:
+            retur = swap(True)
+            time.sleep(5)
+            if psutil.swap_memory()[0] > 0:
+                text += LANG["SWAP_on_on_demand"]+retur["text"]+"\n"
     CPU_temp = psutil.sensors_temperatures(fahrenheit=False)["coretemp"][0][1]
     if CPU_temp >= CONFIG_DICT["CRITICAL_PARAMS"]["CPU_temperature"]:
         text += "CPU_temperature = "+str(CPU_temp)+"℃\n"
@@ -162,10 +168,10 @@ def sys_crit_params():
 
 def start(update: Update, context: CallbackContext) -> None:
     if update["message"]["chat"]["id"] in auth_num and auth_num[update["message"]["chat"]["id"]] > 4:
-        update.message.reply_text('Превышено количество попыток, обратитесь к администратору')
+        update.message.reply_text(LANG['kolvo_popytok'])
         return ConversationHandler.END
     if update['message']['chat']['id'] not in CONFIG_DICT["CHAT_IDS"]:
-        update.message.reply_text('Требуется авторизация, введите пароль:')
+        update.message.reply_text(LANG['need_auth'])
         return PASSWORD
 
     #Если ферма не указана для этого пользователя, то выбираем №1
@@ -173,7 +179,7 @@ def start(update: Update, context: CallbackContext) -> None:
         context.user_data["farm"] = 1
     reply_keyboard = [list(CONFIG_DICT["NODE_LIST"])]
     reply_markup=ReplyKeyboardMarkup(
-            reply_keyboard, resize_keyboard=True, one_time_keyboard=False, input_field_placeholder='Выберите номер NODE')
+            reply_keyboard, resize_keyboard=True, one_time_keyboard=False, input_field_placeholder=LANG['node_num'])
     text = "NODE "+str(context.user_data["farm"])+"\n"
     reply_message(update, text, reply_markup)
     chat_ids_to_harvesters()
@@ -189,14 +195,14 @@ def chat_ids_to_harvesters(chat_ids=None):
         globals()["CONFIG_DICT"]["CHAT_IDS"] = chat_ids
         with open(CONFIG_PATCH, "w") as f:
             f.write(yaml.dump(CONFIG_DICT, sort_keys=False))
-        return "Записал chat_ids на харвестер"
+        return LANG["wrote_chat_ids"]
 
 def refresh_chat_ids_for_new_user():
     for key in CONFIG_DICT["CHAT_IDS"]:
-        FILTER_CHAT_IDS[key] = "not set"
-        MESSAGES[key] = None
-        KEYBOARD[key] = get_keyboard()
-        REPLY_MARKUP[key] = InlineKeyboardMarkup(KEYBOARD[key])
+        globals()["FILTER_CHAT_IDS"][key] = "not set"
+        globals()["MESSAGES"][key] = None
+        globals()["KEYBOARD"][key] = get_keyboard()
+        globals()["REPLY_MARKUP"][key] = InlineKeyboardMarkup(KEYBOARD[key])
 
 def password(update: Update, _: CallbackContext) -> None:
     if update.message.text == CONFIG_DICT["PASSWORD"] and (update["message"]["chat"]["id"] not in auth_num or auth_num[update["message"]["chat"]["id"]] < 5): 
@@ -220,31 +226,53 @@ def password(update: Update, _: CallbackContext) -> None:
     else:
         if update["message"]["chat"]["id"] in auth_num: globals()["auth_num"][update["message"]["chat"]["id"]] += 1
         else: globals()["auth_num"][update["message"]["chat"]["id"]] = 1
-        message_to_all("Неудачная авторизация № {3} от {0}, {1} {2}".format(update["message"]["chat"]["id"], update["message"]["chat"]["first_name"], 
-                                                                            update["message"]["chat"]["last_name"], auth_num[update["message"]["chat"]["id"]]), None)
-        print("Неудачная авторизация № {3} от {0}, {1} {2}".format(update["message"]["chat"]["id"], update["message"]["chat"]["first_name"], 
-                                                                            update["message"]["chat"]["last_name"], auth_num[update["message"]["chat"]["id"]]))
+        message_to_all("{4} {3} {5} {0}, {1} {2}".format(update["message"]["chat"]["id"], update["message"]["chat"]["first_name"], 
+                                                                            update["message"]["chat"]["last_name"], auth_num[update["message"]["chat"]["id"]],
+                                                                            LANG["unauth"], LANG["ot"]), None)
+        print("{4} {3} {5} {0}, {1} {2}".format(update["message"]["chat"]["id"], update["message"]["chat"]["first_name"], 
+                                                                            update["message"]["chat"]["last_name"], auth_num[update["message"]["chat"]["id"]],
+                                                                            LANG["unauth"], LANG["ot"]))
         if auth_num[update["message"]["chat"]["id"]] > 4:
-            update.message.reply_text('Превышено количество попыток, обратитесь к администратору')
+            update.message.reply_text(LANG['kolvo_popytok'])
             return ConversationHandler.END
         time.sleep(auth_num[update["message"]["chat"]["id"]])
-        update.message.reply_text('Пароль не верный, попробуйте снова (осталось {0})'.format(5 - auth_num[update["message"]["chat"]["id"]]))
+        update.message.reply_text('{0} {1})'.format(LANG["wrong_pass"], 5 - auth_num[update["message"]["chat"]["id"]]))
         return PASSWORD
 
+def language_to_harvesters(language, full_node=False):
+    globals()["CONFIG_DICT"]["LANGUAGE"] = language
+    with open(CONFIG_PATCH, "w") as f:
+        f.write(yaml.dump(CONFIG_DICT, sort_keys=False))
+    globals()["LANG"] = eval(CONFIG_DICT["LANGUAGE"])
+    globals()["START_TEXT"] = LANG["start_text"]
+    refresh_chat_ids_for_new_user()
+    if full_node:
+        chat_dict_to_send = {"data": "language_to_harvesters(q)", "q": language}
+        for key, value in CONFIG_DICT["NODE_LIST"].items():
+            if key == 1: continue
+            socket_client(value, CONFIG_DICT["HARVESTER_PORT"], chat_dict_to_send)
+    else:
+        return "Choose "+language
+
+def choose_language_1(update: Update, _: CallbackContext):
+    text = "Please choose a language:\n"
+    reply_keyboard = [LANGUAGE_LIST]
+    for lang in LANGUAGE_LIST:
+        text += lang+"\n"
+    reply_markup=ReplyKeyboardMarkup(
+            reply_keyboard, resize_keyboard=True, one_time_keyboard=True, input_field_placeholder='Please choose a language')
+    reply_message(update, text, reply_markup)
+    return LANGUAGE
+def choose_language_2(update: Update, _: CallbackContext):
+    if not update.message.text in LANGUAGE_LIST: choose_language_1(update, _)
+    else:
+        language_to_harvesters(update.message.text, True)
+        reply_message(update, LANG["apply_lang"])
+        start(update, _)
+        return ConversationHandler.END
 def help_command(arg=None):
     """Send a message when the command /help is issued."""
-    text = 'Пользуйтесь кнопками, для появления кнопок наберите любое сообщение.\n\
-Для переключения между нодами наберите <int> номер компьютера\n\
-Для изменения таймера Watchdog наберите /wd <int> (секунд), для отключения Watchdog наберите /wd 0.\n\
-Для изменения количества параллельных плотов наберите /parallel_plots <int>\n\
-Для выбора таблицы начала следующего плота наберите /table <int>\n\
-Для изменения настроек засева наберите /set_plot_config <int>\n\
-Для включения/отключения отображения бесшумных уведомлений наберите /notify <on/off>\n\
-Для просмотра журнала watchdog наберите /log <float> (часов)\n\
-Для удаления директорий из чиа в которых нет плотов и добавления директорий в которых найдены плоты наберите /check_plots_dirs 1\n\
-Для наблюдением за количеством плотов прошедших фильтр наберите /filter <int> (>= количества плотов прошедших фильтр)\n\n\
-Не все плоты могут быть отменены. При засеве разных плотов с одинаковыми параметрами, бот не сможет найти и закрыть определенный процесс chia\
-Для корректной работы кнопок при создании плота, из-за ограничений Telegram, абсолютный путь к корню ваших дисков не должен превышать 52 байта UTF-8(52 символа для латинского алфавита)'
+    text = LANG["help_text"]
     retur = {"text":text}
     return(retur)
 @app.route('/get_balance')
@@ -275,17 +303,19 @@ def get_balance():
             response = session.get(url, params=parameters)
             data = json.loads(response.text)
 
-            url = "https://www.cbr-xml-daily.ru/daily_json.js"
-            r = get(url)
-            USD_price = float(r.json()["Valute"]["USD"]["Value"])
-
             chia_price_usd = float(data["data"]["9258"]["quote"]["USD"]["price"])
             chia_percent_change_24h = float(data["data"]["9258"]["quote"]["USD"]["percent_change_24h"])
             result = re.match(r"[0-9.e-]*", fdict['Total Balance: '])
             XCH_balance = float(result.group(0))
-            text = text+"{0} XCH * {1}$({2}%) * {3}₽ = {0} * {4} = {5} ₽\n".format(XCH_balance, round(chia_price_usd,2), round(chia_percent_change_24h), round(USD_price,2), 
-            round(chia_price_usd*USD_price), 
-            round(XCH_balance*chia_price_usd*USD_price))
+            if CONFIG_DICT["LANGUAGE"] == "russian":
+                url = "https://www.cbr-xml-daily.ru/daily_json.js"
+                r = get(url)
+                USD_price = float(r.json()["Valute"]["USD"]["Value"])
+                text = text+"{0} XCH * {1}$({2}%) * {3}₽ = {0} * {4} = {5} ₽\n".format(XCH_balance, round(chia_price_usd,2), round(chia_percent_change_24h), round(USD_price,2), 
+                round(chia_price_usd*USD_price), 
+                round(XCH_balance*chia_price_usd*USD_price))
+            else:
+                text = text+"{0} XCH * {1}$({2}%) = {3} $\n".format(XCH_balance, round(chia_price_usd,2), round(chia_percent_change_24h), round(XCH_balance*chia_price_usd,2))
         except (ValueError, ConnectionError, Timeout, TooManyRedirects) as e:
             print(e)
     else: 
@@ -325,7 +355,7 @@ def get_status():
 
         for key, value in fdict.items():
             text += "{0} {1}".format(key,value) + "\n"
-        text += "Расчетное время выигрыша: " + time_delta_rus(time_to_win) + " ("+str(percent_in_day)+"%)\n"
+        text += LANG["time_to_win"] + time_delta_rus(time_to_win) + " ("+str(percent_in_day)+"%)\n"
     Stat = {"Final_file_size": [], "Total_time": [],"Copy_time": [], "AVG_Final_file_size":0, "AVG_Total_time":0, "AVG_Copy_time":0, "AVG_time_per_Gb": 0, "space_left":0}
     dir_plots = []
     progress_plots = []
@@ -381,12 +411,12 @@ def get_status():
                         dir_plots.append(tmp[0][0]+" ["+tmp[0][1]+"]")
                         progress_plots.append(log.count("\n"))
             except(IndexError):
-                print("Призошло исключение в функции get_status.re.(filename:"+filename+")")
+                print("except IndexError get_status.re.(filename:"+filename+")")
     try:
         num_string_100 = num_string / num_finish_files
     except(ZeroDivisionError):
         num_string_100 = 2627
-    text += "<b>Текущие плоты:</b>\n"
+    text += "<b>"+LANG["now_plots"]+"</b>\n"
     for dirp, progp in zip(dir_plots, progress_plots):
         text = text + dirp+"\n"+num_to_scale((progp/num_string_100*100), 20)+" "+str(round(progp/num_string_100*100))+"%\n"
 
@@ -395,7 +425,7 @@ def get_status():
         Stat["AVG_Total_time"] = sum(Stat["Total_time"]) / len(Stat["Total_time"])
         Stat["AVG_Copy_time"] = sum(Stat["Copy_time"]) / len(Stat["Copy_time"])
         Stat["AVG_time_per_Gb"] = (Stat["AVG_Total_time"]+Stat["AVG_Copy_time"]) / (Stat["AVG_Final_file_size"] * (1.024**3))
-        text = text + "Среднее время на Гб: {0} ".format(str(datetime.timedelta(seconds=round(Stat["AVG_time_per_Gb"])))) + "\n"
+        text = text + "{0} {1} ".format(LANG["avg_time"], str(datetime.timedelta(seconds=round(Stat["AVG_time_per_Gb"])))) + "\n"
     except(ZeroDivisionError):
         pass
     Disk_dict = disk_list(1100000000000)
@@ -406,7 +436,7 @@ def get_status():
     act_plots = num_act_plots(4)["num"]
     if not act_plots: time_left = "∞"
     else: time_left = str(datetime.timedelta(seconds=round(((Stat["space_left"]/(1000**3)) * Stat["AVG_time_per_Gb"])/act_plots)))
-    text = text + "Осталось засеять: {0} Гб за {1} ".format(round(Stat["space_left"]/(1000**3)), time_delta_rus(time_left)) + "\n" 
+    text = text + "{0} {1} GiB {2} {3} ".format(LANG["left_to_plot"], round(Stat["space_left"]/(1000**3)), LANG["za"], time_delta_rus(time_left)) + "\n" 
     try:
         with open(CONFIG_DICT["LOGPATCH"], 'r') as f:
             log = f.read()
@@ -415,19 +445,19 @@ def get_status():
         for otklik in match:
             time_summ += float(otklik)
         avg_time = time_summ / len(match)
-        text = text + "Среднее время отклика: {0} с., попыток в логе: {1}".format(round(avg_time, 4), len(match)) + "\n"
+        text = text + "{0} {1} {2} {3}".format(LANG["avg_otklik"], round(avg_time, 4), LANG["popyts"], len(match)) + "\n"
     except(FileNotFoundError, IndexError, ZeroDivisionError):
-        print("Призошло исключение в функции get_status.time_proof")
+        print("except in get_status.time_proof")
 
     #Кнопки
     if globals()["CONFIG_DICT"]["AUTO_P"] == True:
-        keyboard = [[InlineKeyboardButton("Откл автозасев", callback_data='autoplot(False)_confirm')]]
+        keyboard = [[InlineKeyboardButton(LANG["off_autoplot"], callback_data='autoplot(False)_confirm')]]
     else:
-        keyboard = [[InlineKeyboardButton("Вкл автозасев", callback_data='autoplot(True)_confirm')]]
+        keyboard = [[InlineKeyboardButton(LANG["on_autoplot"], callback_data='autoplot(True)_confirm')]]
     if act_plots > 0:
-        line = InlineKeyboardButton("Отменить", callback_data='dell_plot()')
+        line = InlineKeyboardButton(LANG["cancel"], callback_data='dell_plot()')
         keyboard[0].append(line)
-    line = InlineKeyboardButton("Создать", callback_data='cpb(q)')  
+    line = InlineKeyboardButton(LANG["create"], callback_data='cpb(q)')  
     keyboard[0].append(line)
     retur = {"text":text, "keyboard":keyboard}
     if(request):
@@ -516,10 +546,10 @@ def get_sys_info():
     text = text + "System start at: {0}".format(Sys_start_at) + "\n"
     #Кнопки
     if psutil.swap_memory()[0] > 0:
-        keyboard = [[InlineKeyboardButton("Откл.SWAP", callback_data='swap(False)')]]
+        keyboard = [[InlineKeyboardButton(LANG["SWAP_off"], callback_data='swap(False)')]]
     else:
-        keyboard = [[InlineKeyboardButton("Вкл.SWAP", callback_data='swap(True)')]]
-    line = InlineKeyboardButton("Переместить", callback_data='mpb(q)')  
+        keyboard = [[InlineKeyboardButton(LANG["SWAP_on"], callback_data='swap(True)')]]
+    line = InlineKeyboardButton(LANG["move"], callback_data='mpb(q)')  
     keyboard[0].append(line)
     line = InlineKeyboardButton("k32/k33", callback_data='plplan()')
     keyboard[0].append(line)
@@ -542,12 +572,12 @@ def swap(do):
     cli = p.communicate(sudo_password + '\n')[0]
 
     swap_size = psutil.swap_memory()[0]
-    text = "Размер файла SWAP: {0} MB.\n".format(round(swap_size/1000000))
+    text = "{0} {1} MB.\n".format(LANG["SWAP_size"], round(swap_size/1000000))
     retur = {"text":text}
     return(retur)
 
 def cancel():
-    text = "Отмена\n"
+    text = LANG["cancel"]+"\n"
     retur = {"text":text}
     return(retur)
 
@@ -557,11 +587,11 @@ def dell_plot(pid=None):
         with open(CONFIG_DICT["PLOTS_FILE"], "rb") as f:
             all_plots = pickle.load(f)
         if not all_plots:
-            text = "Я ничего не сеял\n"
+            text = LANG["not_ploted"]+"\n"
             retur = {"text":text}
             return(retur)
     except(FileNotFoundError):
-        text = "Не нашел файла с плотами\n"
+        text = LANG["no_file_plot"]+"\n"
         retur = {"text":text}
         return(retur)
 
@@ -592,7 +622,7 @@ def dell_plot(pid=None):
             num_string_100 = num_string / num_finish_files
         except(ZeroDivisionError):
             num_string_100 = 2627
-        text = "<b>Выберите плот для отмены:</b>\n"
+        text = "<b>"+LANG["choose_plot_cancel"]+"</b>\n"
         i = 0
         keyboard = [[]]
         lvl1 = 0
@@ -623,7 +653,7 @@ def dell_plot(pid=None):
                 for another_plot in all_plots:
                     if another_plot.__class__.__name__ == "Plot":
                         if plot.cmd == another_plot.cmd and plot.name != another_plot.name:
-                            text = "Не могу удалить этот плот. Его команда совпадает с командой другого плота, не смогу закрыть процес chia\n"
+                            text = LANG["cant_dell_plot"]+"\n"
                             retur = {"text":text}
                             return(retur)
                 if plot.pid == pid:
@@ -647,7 +677,7 @@ def dell_plot(pid=None):
                                 os.remove(temp+"/"+filename)
                                 tmp += 1
                     except(FileNotFoundError):
-                        print("Не смог удалить файлы из {0}".format(temp))
+                        print("{0} {1}".format(LANG["cant_dell_files"], temp))
                     if plot.temp2:
                         temp2 = plot.temp2+"/plots"
                         try:
@@ -657,7 +687,7 @@ def dell_plot(pid=None):
                                     os.remove(temp2+"/"+filename)
                                     tmp2 += 1
                         except(FileNotFoundError):
-                            print("Не смог удалить файлы из {0}".format(temp2))
+                            print("{0} {1}".format(LANG["cant_dell_files"], temp2))
                     dest = plot.dest+"/plots"
                     try:
                         file_list = os.listdir(dest)
@@ -666,7 +696,7 @@ def dell_plot(pid=None):
                                 os.remove(temp2+"/"+filename)
                                 dst += 1
                     except(FileNotFoundError):
-                        print("Не смог удалить файлы из {0}".format(dest))
+                        print("{0} {1}".format(LANG["cant_dell_files"], dest))
                     #Удаляем log файл
                     file_list = os.listdir(CONFIG_DICT["PLOTLOGPATCH"])
                     for filename in file_list:
@@ -679,7 +709,8 @@ def dell_plot(pid=None):
                     break
         with open(CONFIG_DICT["PLOTS_FILE"],"wb") as f:
             pickle.dump(all_plots, f)
-        text = "Завершил {0} процесса\nУдалил {1} файлов в {2}\nУдалил {3} файлов в {4}\nУдалил {5} файлов в {6}\nУдалил {7} лог-файл\nУдалил {8} запись из plots_file.sys\n".format(proc, tmp, temp, tmp2, temp2, dst, dest, log, pf)
+        text = "{0} {1} {2}\n{3} {4} {5} {6}\n{3} {7} {5} {8}\n{3} {9} {5} {10}\{3} {11} {12}\n{3} {13} {14}\n".format(
+        LANG["complete"], proc, LANG["procs"], LANG["deleted"], tmp, LANG["files_in"], temp, tmp2, temp2, dst, dest, log, LANG["log_file"], pf, LANG["plots_file"])
         retur = {"text":text}
         return(retur)
 #create_plot_button
@@ -694,7 +725,7 @@ def cpb(query, param=""):
         if que["id"] != query["id"]:
             if time.time() - que["time"] < 90:
                 globals()['Q_for_create_plot_button'].put(que)
-                text = que["first_name"]+" уже создает плот, подождите."
+                text = que["first_name"]+LANG["anybody_create"]
                 retur = {"text":text}
                 return(retur)
             else:
@@ -711,13 +742,13 @@ def cpb(query, param=""):
             que[p] = param[3:]
             if not ("-t " in que and "-2 " in que and "-d " in que and "-z " in que):
                 globals()['Q_for_create_plot_button'].put(que)
-    keyboard = [[InlineKeyboardButton("Отмена", callback_data='cpb(q, "no")')]]
+    keyboard = [[InlineKeyboardButton(LANG["cancel"], callback_data='cpb(q, "no")')]]
     if param == "no":
         try:
             que = globals()['Q_for_create_plot_button'].get_nowait()
         except:
             pass
-        text = "Сбросил параметры\n"
+        text = LANG["clear_params"]+"\n"
         keyboard = [[]]
         retur = {"text":text, "keyboard":keyboard}
         return(retur)
@@ -728,7 +759,7 @@ def cpb(query, param=""):
         for key in parameters:
             if key in que:
                 text += key+": "+que[key]+"\n"
-        text += "Выберите размер плота:\n\n"
+        text += LANG["ch_size_plot"]+"\n\n"
         lvl1 = 0
         lvl2 = 0
         k = 1024**3
@@ -752,7 +783,7 @@ def cpb(query, param=""):
         for key in parameters:
             if key in que:
                 text += key+": "+que[key]+"\n"
-        text += "Выберите диск для temp папки:\n\n"
+        text += LANG["temp_disk"]+"\n\n"
         lvl1 = 0
         lvl2 = 0
         k = 1024**3
@@ -790,7 +821,7 @@ def cpb(query, param=""):
                     que = globals()['Q_for_create_plot_button'].get_nowait()
                 except:
                     break
-            text = "На ваших дисках не достаточно свободного места\n"
+            text = LANG["not_enought_space"]+"\n"
         retur = {"text":text, "keyboard":keyboard}
         return(retur)
 
@@ -799,7 +830,7 @@ def cpb(query, param=""):
         for key in parameters:
             if key in que:
                 text += key+": "+que[key]+"\n"
-        text += "Выберите диск для temp2 папки:\n\n"
+        text += LANG["temp2_disk"]+"\n\n"
         lvl1 = 0
         lvl2 = 0
         k = 1024**3
@@ -838,7 +869,7 @@ def cpb(query, param=""):
         for key in parameters:
             if key in que:
                 text += key+": "+que[key]+"\n"
-        text += "Выберите диск для конечной папки:\n\n"
+        text += LANG["dest_disc"]+"\n\n"
         lvl1 = 0
         lvl2 = 0
         k = 1024**3
@@ -879,17 +910,17 @@ def cpb(query, param=""):
                 que = globals()['Q_for_create_plot_button'].get_nowait()
             except:
                 pass
-            text = "Создаю плот...\n"
+            text = LANG["creating"]+"\n"
             keyboard = []
         elif param == "no":
             try:
                 que = globals()['Q_for_create_plot_button'].get_nowait()
             except:
                 pass
-            text = "Сбросил параметры\n"
+            text = LANG["clear_params"]+"\n"
             keyboard = []
         else:
-            text = "size: {0}\ntemp: {1}\ntemp2: {2}\ndest: {3}\nСоздаю плот?\n".format(que["-z "], que["-t "], que["-2 "], que["-d "])
+            text = "size: {0}\ntemp: {1}\ntemp2: {2}\ndest: {3}\n{4}\n".format(que["-z "], que["-t "], que["-2 "], que["-d "], LANG["create_ask"])
             keyboard = [[InlineKeyboardButton("Да", callback_data='cpb(q, "yes")'), InlineKeyboardButton("Отмена", callback_data='cpb(q, "no")')]]
             globals()['Q_for_create_plot_button'].put(que)
         retur = {"text":text, "keyboard":keyboard}
@@ -914,7 +945,7 @@ def dpb(param=""):
             que = globals()['Q_for_dell_plot_button'].get_nowait()
         except:
             pass
-        text = "Сбросил параметры\n"
+        text = LANG["clear_params"]+"\n"
         keyboard = [[]]
         retur = {"text":text, "keyboard":keyboard}
         return(retur)
@@ -925,7 +956,7 @@ def dpb(param=""):
         for key in parameters:
             if key in que:
                 text += key+": "+str(que[key])+"\n"
-        text += "Выберите диск c которого хотите удалить:\n\n"
+        text += LANG["choose_dell_disk"]+"\n\n"
         lvl1 = 0
         lvl2 = 0
         Disk_list = disk_list(109*1000000000, 1, True)
@@ -961,10 +992,10 @@ def dpb(param=""):
         for key in parameters:
             if key in que:
                 text += key+": "+str(que[key])+"\n"
-        text += "Выберите возраст плотов:\n\n"
-        line = InlineKeyboardButton("Старые(not NFT)", callback_data='dpb("-o True")')
+        text += LANG["age_plots"]+"\n\n"
+        line = InlineKeyboardButton(LANG["old"], callback_data='dpb("-o True")')
         keyboard[0].append(line)
-        line = InlineKeyboardButton("Любые", callback_data='dpb("-o False")')
+        line = InlineKeyboardButton(LANG["any"], callback_data='dpb("-o False")')
         keyboard[0].append(line)
         retur = {"text":text, "keyboard":keyboard}
         return(retur)
@@ -986,16 +1017,16 @@ def dpb(param=""):
                     que = globals()['Q_for_dell_plot_button'].get_nowait()
                 except:
                     break
-            text = "Не нашел плотов на этом диске\n"
+            text = LANG["no_plots_on_disk"]+"\n"
             retur = {"text":text}
             return(retur)
         if dig != 1:
-            text += "Выберите тип плота\n"
+            text += LANG["type_plot"]+"\n"
             lvl1 = 0
             lvl2 = 0
             for key, value in plot_list.items():
                 if key.isdigit():
-                    text += "Нашел {0} плотов k{1}\n".format(value, key)
+                    text += "{0} {1} {2} k{3}\n".format(LANG["find"], value, LANG["plots"], key)
                     line = InlineKeyboardButton("k"+str(key), callback_data='dpb("-z '+str(key)+'")')
                     if lvl1 < 4:            
                         keyboard[lvl2].append(line)
@@ -1011,7 +1042,7 @@ def dpb(param=""):
             que["-z "] = str(size)
             for key, value in plot_list.items():
                 if key.isdigit():
-                    text += "Нашел {0} плотов k{1}\n".format(value, key)
+                    text += "{0} {1} {2} k{3}\n".format(LANG["find"], value, LANG["plots"], key)
     #kolvo
     if not "-n " in que and "-z " in que and "-o " in que:
         if "text" not in locals():
@@ -1019,7 +1050,7 @@ def dpb(param=""):
             for key in parameters:
                 if key in que:
                     text += key+": "+str(que[key])+"\n"
-        text += "Выберите количество плотов для удаления:\n\n"
+        text += LANG["kolvo_to_dell"]+"\n\n"
         lvl1 = 0
         lvl2 = 0
         plot_list = plots_on_disk(patch=que["-d "], old=que["-o "])
@@ -1040,7 +1071,7 @@ def dpb(param=""):
                     keyboard.append([])
                     keyboard[lvl2].append(line)
         else:
-            text = "На диске нет подходящих плотов\n"
+            text = LANG["no_good_plots"]+"\n"
             keyboard = [[]]
         retur = {"text":text, "keyboard":keyboard}
         return(retur)
@@ -1056,12 +1087,12 @@ def dpb(param=""):
             for key, value in deleted_plot_list.items():
                 if key != "num_del" and value == "del":
                     n += 1
-            nft_or_not={True:"not NFT", False:"Любой"}
-            text = "Удалил: {0} плотов размером {1} ({2}) с диска {3}.".format(n, que["-z "], nft_or_not[bool(que["-o "])], que["-d "])
+            nft_or_not={True:"not NFT", False:LANG["any"]}
+            text = "{0} {1} {2} {3} ({4}) {5} {6}.".format(LANG["deleted"], n, LANG["plot_of_size"], que["-z "], nft_or_not[bool(que["-o "])], LANG["from_disc"], que["-d "])
             keyboard = []
         else:
-            text = "на: {0}\nстарые: {1}\nразмер: k{2}\nколичество: {3}\nУдаляем?\n".format(que["-d "], str(que["-o "]), que["-z "], que["-n "])
-            keyboard = [[InlineKeyboardButton("Да", callback_data='dpb("yes")'), InlineKeyboardButton("Отмена", callback_data='dpb("no")')]]
+            text = "{0} {1}\n{2} {3}\n{4} k{5}\n{6} {7}\n{8}\n".format(LANG["on"], que["-d "], LANG["old2"], str(que["-o "]), LANG["size"], que["-z "], LANG["num"], que["-n "], LANG["will_dell"])
+            keyboard = [[InlineKeyboardButton("Да", callback_data='dpb("yes")'), InlineKeyboardButton(LANG["cancel"], callback_data='dpb("no")')]]
             globals()['Q_for_dell_plot_button'].put(que)
         retur = {"text":text, "keyboard":keyboard}
         return(retur)
@@ -1078,7 +1109,7 @@ def mpb(query, param=""):
         if que["id"] != query["id"]:
             if time.time() - que["time"] < 90:
                 globals()['Q_for_move_plot_button'].put(que)
-                text = que["first_name"]+" уже начинает копирование, подождите."
+                text = que["first_name"]+LANG["alredy_move"]
                 retur = {"text":text}
                 return(retur)
             else:
@@ -1115,13 +1146,13 @@ def mpb(query, param=""):
             que[p] = param[3:]
             if not ("-s " in que and "-d " in que and "-n " in que and "-z " in que):
                 globals()['Q_for_move_plot_button'].put(que)
-    keyboard = [[InlineKeyboardButton("Отмена", callback_data='mpb(q, "no")')]]
+    keyboard = [[InlineKeyboardButton(LANG["cancel"], callback_data='mpb(q, "no")')]]
     if param == "no":
         try:
             que = globals()['Q_for_move_plot_button'].get_nowait()
         except:
             pass
-        text = "Сбросил параметры\n"
+        text = LANG["clear_params"]+"\n"
         keyboard = [[]]
         retur = {"text":text, "keyboard":keyboard}
         return(retur)
@@ -1133,7 +1164,7 @@ def mpb(query, param=""):
         for key in parameters:
             if key in que:
                 text += key+": "+que[key]+"\n"
-        text += "Выберите диск c которого хотите переместить:\n\n"
+        text += LANG["choose_disk_to_move"]+"\n\n"
         lvl1 = 0
         lvl2 = 0
         Disk_list = disk_list(109*1000000000, 1, True)
@@ -1179,7 +1210,7 @@ def mpb(query, param=""):
                     que = globals()['Q_for_move_plot_button'].get_nowait()
                 except:
                     break
-            text = "Не нашел плотов на этом диске\n"
+            text = LANG["not_find_plots"]+"\n"
             retur = {"text":text}
             return(retur)
         if dig != 1:
@@ -1187,12 +1218,12 @@ def mpb(query, param=""):
                 if key in que:
                     text += key+": "+que[key]+"\n\n"
 
-            text += "Выберите тип плота\n"
+            text += LANG["type_plot"]+"\n"
             lvl1 = 0
             lvl2 = 0
             for key, value in plot_list.items():
                 if key.isdigit():
-                    text += "Нашел {0} плотов k{1}\n".format(value, key)
+                    text += "{0} {1} {2} k{3}\n".format(LANG["find"], value, LANG["plots"], key)
                     line = InlineKeyboardButton("k"+str(key), callback_data='mpb(q, "-z '+str(key)+'")')
                     if lvl1 < 4:            
                         keyboard[lvl2].append(line)
@@ -1208,7 +1239,7 @@ def mpb(query, param=""):
             que["-z "] = str(size)
             for key, value in plot_list.items():
                 if key.isdigit():
-                    text += "Нашел {0} плотов k{1}\n".format(value, key)
+                    text += "{0} {1} {2} k{3}\n".format(LANG["find"], value, LANG["plots"], key)
 
 
     if not "-n " in que and "-z " in que and "-s " in que:
@@ -1221,7 +1252,7 @@ def mpb(query, param=""):
                             que = globals()['Q_for_move_plot_button'].get_nowait()
                         except:
                             break
-                    text = "Уже идет копирование с этого диска\n"
+                    text = LANG["alredy_moving"]+"\n"
                     retur = {"text":text}
                     return(retur)
 
@@ -1230,7 +1261,7 @@ def mpb(query, param=""):
         for key in parameters:
             if key in que:
                 text += key+": "+que[key]+"\n"
-        text += "Выберите количество плотов которое хотите переместить:\n\n"
+        text += LANG["num_plots_to_move"]+"\n\n"
         lvl1 = 0
         lvl2 = 0
         plot_list = plots_on_disk(que["-s "])
@@ -1257,7 +1288,7 @@ def mpb(query, param=""):
         for key in parameters:
             if key in que:
                 text += key+": "+que[key]+"\n"
-        text += "Выберите диск на который хотите переместить:\n\n"
+        text += LANG["choose_disk_to_move_on"]+"\n\n"
         lvl1 = 0
         lvl2 = 0
         k = 1024**3
@@ -1299,7 +1330,7 @@ def mpb(query, param=""):
                 que = globals()['Q_for_move_plot_button'].get_nowait()
             except:
                 pass
-            text = "На ваших дисках не достаточно места, для перемещения\n"
+            text = LANG["not_enought_space_to_move"]+"\n"
             keyboard = [[]]
         retur = {"text":text, "keyboard":keyboard}
         return(retur)
@@ -1319,10 +1350,11 @@ def mpb(query, param=""):
                 que = globals()['Q_for_move_plot_button'].get_nowait()
             except:
                 pass
-            text = "Начинаю перемещение...\nПо завершению пришлю уведомление\n"
+            text = LANG["moving"]+"\n"+LANG["will_send_notify"]+"\n"
             keyboard = []
         else:
-            text = "из: {0}\nв: {1}\nразмер: k{2}\nколичество: {3}\nНачинаю перемещение?\n".format(que["-s "], que["-d "], que["-z "], que["-n "])
+            text = "{0} {1}\n{2} {3}\n{4} k{5}\n{6} {7}\n{8}\n".format(LANG["from"], que["-s "], LANG["to"], que["-d "], 
+                                                                                        LANG["size"], que["-z "], LANG["num"], que["-n "], LANG["will_move"])
             keyboard = [[InlineKeyboardButton("Да", callback_data='mpb(q, "yes")'), InlineKeyboardButton("Отмена", callback_data='mpb(q, "no")')]]
             globals()['Q_for_move_plot_button'].put(que)
         retur = {"text":text, "keyboard":keyboard}
@@ -1330,7 +1362,7 @@ def mpb(query, param=""):
 
 def plplan(disk=None):
     if not disk:
-        text = "Выберите диск для более подробной информации\n"
+        text = LANG["choose_disc_for_info"]+"\n"
         keyboard = [[]]
         disk_part = psutil.disk_partitions(all=True)
         lvl1 = 0
@@ -1355,17 +1387,17 @@ def plplan(disk=None):
                         keyboard.append([])
                         keyboard[lvl2].append(line)
     else:
-        keyboard = [[InlineKeyboardButton("Назад", callback_data='plplan()')]]
-        text = "Диск: "+disk+"\nРасчет исходя из емкости диска:\n"
+        keyboard = [[InlineKeyboardButton(LANG["back"], callback_data='plplan()')]]
+        text = LANG["disc"]+disk+"\n"+LANG["calc_by_total"]+"\n"
         d = psutil.disk_usage(disk)
         total = d[1]+d[2]
         answ = choose_plot_size(total)
-        text += "k32:{0}, k33:{1} |{2}Gb\n".format(answ[1][0], answ[1][1], round(answ[0], 2))
+        text += "k32:{0}, k33:{1} |{2}GiB\n".format(answ[1][0], answ[1][1], round(answ[0], 2))
         answ = choose_plot_size(d[2])
         if answ:
-            text += "Расчет исходя из свободного ({0}Gb) места:\nk32:{1}, k33:{2} |{3}Gb\n".format(round(d[2]*1e-9,1), answ[1][0], answ[1][1], round(answ[0], 2))
-        else: text += "Не достаточно свободного места для создания плота\n"
-        text += "Нашел на диске: \n"
+            text += "{0} ({1}Gb) {2}\nk32:{3}, k33:{4} |{5}Gb\n".format(LANG["calc_by_free"], round(d[2]*1e-9,1), LANG["space"], answ[1][0], answ[1][1], round(answ[0], 2))
+        else: text += LANG["not_enought_space_on_disc"]+"\n"
+        text += LANG["find_on_disc"]+"\n"
         plot_list = plots_on_disk(disk)
         for key, value in plot_list.items():
             if key.isdigit():
@@ -1378,16 +1410,16 @@ def plplan(disk=None):
 def plot_config(sata_as_ssd=None, use_k33=None):
     if sata_as_ssd == "yes":
         globals()["CONFIG_DICT"]["SATA_AS_SSD"] = "yes"
-        text = "Использую SATA как SSD\n"
+        text = LANG["using_SATA_as_SSD"]+"\n"
     elif sata_as_ssd == "no":
         globals()["CONFIG_DICT"]["SATA_AS_SSD"] = "no"
-        text = "Не использую SATA как SSD\n"
+        text = LANG["not_using_SATA_as_SSD"]+"\n"
     if use_k33 == "yes":
         globals()["CONFIG_DICT"]["USE_K33"] = "yes"
-        text = "Использую K33 плоты\n"
+        text = LANG["using_k33"]+"\n"
     elif use_k33 == "no":
         globals()["CONFIG_DICT"]["USE_K33"] = "no"
-        text = "Не использую K33 плоты\n"
+        text = LANG["using_k33"]+"\n"
     with open(CONFIG_PATCH, "w") as f:
         f.write(yaml.dump(CONFIG_DICT, sort_keys=False))
 
@@ -1409,20 +1441,20 @@ def button(update, context):
     query_data = str(query.data)
     print(query["message"]["chat"]["first_name"]+"---->"+query_data)
     if query["message"]["chat"]["id"] not in CONFIG_DICT["CHAT_IDS"]:
-        message_to_all("Подозрительная активность от {0}, {1} {2}".format(query["message"]["chat"]["id"], query["message"]["chat"]["first_name"], 
+        message_to_all("{0} {1}, {2} {3}".format(LANG["hacking_by"], query["message"]["chat"]["id"], query["message"]["chat"]["first_name"], 
                                                                             query["message"]["chat"]["last_name"]), None)
-        print("Подозрительная активность от {0}, {1} {2}".format(query["message"]["chat"]["id"], query["message"]["chat"]["first_name"], 
+        print("{0} {1}, {2} {3}".format(LANG["hacking_by"], query["message"]["chat"]["id"], query["message"]["chat"]["first_name"], 
                                                                             query["message"]["chat"]["last_name"]))
         return
 
     reply_markup = InlineKeyboardMarkup(KEYBOARD[query["message"]["chat"]["id"]])
 
     query.answer()
-    query.edit_message_text(text="Выполняю...", parse_mode="HTML", reply_markup=reply_markup)
+    query.edit_message_text(text=LANG["working"], parse_mode="HTML", reply_markup=reply_markup)
 
     if query_data[len(query_data)-len("confirm"):] == "confirm":
-        text = "Вы уверены?\n"
-        keyboard = [[InlineKeyboardButton("Да", callback_data=query_data[:(len(query_data)-len("_confirm"))]), InlineKeyboardButton("Отмена", callback_data="cancel()")]]
+        text = LANG["you_sure"]+"\n"
+        keyboard = [[InlineKeyboardButton(LANG["yes"], callback_data=query_data[:(len(query_data)-len("_confirm"))]), InlineKeyboardButton(LANG["cancel"], callback_data="cancel()")]]
     else: 
 
         if int(context.user_data["farm"]) == 1:
@@ -1440,7 +1472,7 @@ def button(update, context):
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     current_datetime = datetime.datetime.fromtimestamp(time.mktime(datetime.datetime.now().timetuple()))
-    text = text+"<b>Обновлено: {}</b>".format(current_datetime)
+    text = text+"<b>{0} {1}</b>".format(LANG["refreshed"], current_datetime)
 
 
     query.edit_message_text(text=text, parse_mode="HTML", reply_markup=reply_markup)
@@ -1450,7 +1482,7 @@ def button(update, context):
 def autoplot(auto):
     if auto == True:
         if globals()["CONFIG_DICT"]["AUTO_P"] == True:
-            text = "Не могу включить дважды\n"
+            text = LANG["cant_on_twice"]+"\n"
             retur = {"text":text}
             return(retur)
         else:
@@ -1465,12 +1497,12 @@ def autoplot(auto):
             "USE_K33": CONFIG_DICT["USE_K33"]}
             globals()['Q'].put(que)
 
-            text = "Включил автозасев\n"
+            text = LANG["autoplot_turn_on"]+"\n"
             retur = {"text":text}
             return(retur)
     if auto == False:
         if globals()["CONFIG_DICT"]["AUTO_P"] == False:
-            text = "Не могу отключить дважды\n"
+            text = LANG["cant_off_twice"]+"\n"
             retur = {"text":text}
             return(retur)
         else:
@@ -1485,7 +1517,7 @@ def autoplot(auto):
             "USE_K33": CONFIG_DICT["USE_K33"]}
             globals()['Q'].put(que)
 
-            text = "Выключил автозасев\n"
+            text = LANG["autoplot_turn_off"]+"\n"
             retur = {"text":text}
             return(retur)
 
@@ -1611,7 +1643,7 @@ def plot_manager():
                         last_time = datetime.datetime.now()
                         time.sleep(5)
                         continue
-                    #отсортируем список дисков, вверху не сата и менее используемые, c необходимостью в плоте к33
+                    #отсортируем список дисков, вверху не сата и менее используемые, c необходимостью в плоте к33, на которых всех больше свободного места
                     plots_sizes_sorted = {}
                     for_sort = {}
                     for patch in plots_sizes.keys():
@@ -1623,6 +1655,7 @@ def plot_manager():
                                 for_sort[patch] += 10
                         if plots_sizes[patch][33] == 0:
                             for_sort[patch] += 1
+                        for_sort[patch] += 1/(Disk_list[patch]/1000000000000)
                     sorted_tuples = sorted(for_sort.items(), key=lambda item: item[1])
                     sorted_for_sort= {k: v for k, v in sorted_tuples}
                     for key in sorted_for_sort.keys():
@@ -1914,7 +1947,8 @@ def watchdog():
                     for key, value in stat.items():
                         text += "{0} {1}".format(key,value) + "\n"
                     message_to_all(text, None)
-                log = "{0}    Sync status:{1}    Farming status:{2}    Plot count:{3} (было {4})\n".format(str(timestamp_now), stat["Sync status: "], stat["Farming status: "], stat["Plot count for all harvesters: "], plot_count_all_harvesters)
+                log = "{0}    Sync status:{1}    Farming status:{2}    Plot count:{3} ({4} {5})\n".format(str(timestamp_now), stat["Sync status: "], stat["Farming status: "], 
+                                                                                                        stat["Plot count for all harvesters: "], LANG["was"], plot_count_all_harvesters)
                 f.write(log)
                 f.close()
                 globals()["plot_count_all_harvesters"] = stat["Plot count for all harvesters: "]
@@ -1926,20 +1960,20 @@ def set_watchdog_interval(arg=None):
     if arg and str(arg).isdigit():
         arg = int(round(float(arg)))
         if arg < 60 and arg != 0:
-            text = 'Слишком часто, могу опрашивать не чаще 60 секунд.'
+            text = LANG["too_often"]
             retur = {"text":text}
             return(retur) 
 
         globals()["CONFIG_DICT"]["WD_INTERVAL"] = arg
         with open(CONFIG_PATCH, "w") as f:
             f.write(yaml.dump(CONFIG_DICT, sort_keys=False))
-        if arg != 0: text = 'Установил интервал обновления: '+str(arg)
-        else: text = 'Отключил Watchdog'
+        if arg != 0: text = LANG["set_refresh_interval"]+str(arg)
+        else: text = LANG["wd_off"]
         retur = {"text":text}
         return(retur)
 
     else:
-        text = 'Текущее значение: '+str(CONFIG_DICT["WD_INTERVAL"])+'\nНабери: /wd <seconds>'
+        text = LANG["current"]+str(CONFIG_DICT["WD_INTERVAL"])+'\n'+LANG["type"]+'/wd <seconds>'
         retur = {"text":text}
         return(retur)
 
@@ -1947,7 +1981,7 @@ def set_parallel_plots(arg=None):
     if arg and str(arg).isdigit():
         arg = int(round(float(arg)))
         if arg < 1 or arg > 10:
-            text = 'Диапазон от 1 до 10'
+            text = LANG["paral_diap"]
             retur = {"text":text}
             return(retur)
         globals()["CONFIG_DICT"]["NUM_PARALLEL_PLOTS"] = arg
@@ -1961,12 +1995,12 @@ def set_parallel_plots(arg=None):
             "USE_K33": CONFIG_DICT["USE_K33"]}
         globals()['Q'].put(que)
 
-        text = 'Число параллельных плотов: '+str(globals()["CONFIG_DICT"]["NUM_PARALLEL_PLOTS"])
+        text = LANG["num_paral_plots"]+str(globals()["CONFIG_DICT"]["NUM_PARALLEL_PLOTS"])
         retur = {"text":text}
         return(retur)
 
     else:
-        text = 'Текущее значение: '+str(CONFIG_DICT["NUM_PARALLEL_PLOTS"])+'\nНабери: /parallel_plots <int>'
+        text = LANG["current"]+str(CONFIG_DICT["NUM_PARALLEL_PLOTS"])+'\n'+LANG["type"]+'/parallel_plots <int>'
         retur = {"text":text}
         return(retur)
 
@@ -1974,7 +2008,7 @@ def set_table(arg=None) -> None:
     if arg and str(arg).isdigit():
         arg = int(round(float(arg)))
         if arg < 1 or arg > 7:
-            text = 'Диапазон от 1 до 7'
+            text = LANG["table_diap"]
             retur = {"text":text}
             return(retur)
         globals()["CONFIG_DICT"]["COMPUTING_TABLE"] = arg
@@ -1988,30 +2022,31 @@ def set_table(arg=None) -> None:
             "USE_K33": CONFIG_DICT["USE_K33"]}
         globals()['Q'].put(que)
 
-        text = 'Начало следующего плота на таблице: '+str(globals()["CONFIG_DICT"]["COMPUTING_TABLE"])
+        text = LANG["start_at_table"]+str(globals()["CONFIG_DICT"]["COMPUTING_TABLE"])
         retur = {"text":text}
         return(retur)
 
     else:
-        text = 'Текущее значение: '+str(CONFIG_DICT["COMPUTING_TABLE"])+'\nНабери: /table <int>'
+        text = LANG["current"]+str(CONFIG_DICT["COMPUTING_TABLE"])+'\n'+LANG["type"]+'/table <int>'
         retur = {"text":text}
         return(retur)
 
 def set_plot_config(arg=None):
     keyboard = [[]]
     if CONFIG_DICT["SATA_AS_SSD"] == "no":
-        keyboard[0].append(InlineKeyboardButton("Использовать SATA", callback_data='plot_config(sata_as_ssd="yes")'))
+        keyboard[0].append(InlineKeyboardButton(LANG["use_SATA"], callback_data='plot_config(sata_as_ssd="yes")'))
     else: 
-        keyboard[0].append(InlineKeyboardButton("Не использовать SATA", callback_data='plot_config(sata_as_ssd="no")'))
+        keyboard[0].append(InlineKeyboardButton(LANG["not_use_SATA"], callback_data='plot_config(sata_as_ssd="no")'))
 
     if CONFIG_DICT["USE_K33"] == "no":
-        keyboard[0].append(InlineKeyboardButton("Использовать K33", callback_data='plot_config(use_k33="yes")'))
+        keyboard[0].append(InlineKeyboardButton(LANG["use_K33"], callback_data='plot_config(use_k33="yes")'))
     else: 
-        keyboard[0].append(InlineKeyboardButton("Не использовать K33", callback_data='plot_config(use_k33="no")'))
+        keyboard[0].append(InlineKeyboardButton(LANG["not_use_K33"], callback_data='plot_config(use_k33="no")'))
     
-    text = "Настройки засева:\nПараллельных плотов: {0} (/parallel_plots)\nТаблица начала плота: {1} (/table)\nИспользование SATA для засева: {2}\nИспользование К33 плотов: {3}\n".format(CONFIG_DICT["NUM_PARALLEL_PLOTS"], 
-            CONFIG_DICT["COMPUTING_TABLE"], 
-            CONFIG_DICT["SATA_AS_SSD"], CONFIG_DICT["USE_K33"])
+    text = "{0}\n{1} {2} (/parallel_plots)\n{3} {4} (/table)\n{5} {6}\n{7} {8}\n".format(
+            LANG["plotting_config"], LANG["paral_plots"], CONFIG_DICT["NUM_PARALLEL_PLOTS"], 
+            LANG["start_table"], CONFIG_DICT["COMPUTING_TABLE"], 
+            LANG["using_sata_as_ssd"], CONFIG_DICT["SATA_AS_SSD"], LANG["using_k33"], CONFIG_DICT["USE_K33"])
                                                                 
     retur = {"text":text, "keyboard":keyboard}
     return(retur)
@@ -2019,7 +2054,7 @@ def set_plot_config(arg=None):
 def set_notify(arg=None, chat_id=None):
     if arg:
         if arg != "on" and arg != "off":
-            text = 'Набери: /notify <on/off>'
+            text = LANG["type"]+'/notify <on/off>'
             retur = {"text":text}
             return(retur)
         if CONFIG_DICT["CHAT_IDS"][chat_id]:
@@ -2027,15 +2062,15 @@ def set_notify(arg=None, chat_id=None):
             globals()["Q_for_message"].put(CONFIG_DICT)
             with open(CONFIG_PATCH, "w") as f:
                 f.write(yaml.dump(CONFIG_DICT, sort_keys=False))
-            text = "Статус уведомлений для {0} теперь {1}".format(chat_id, globals()["CONFIG_DICT"]["CHAT_IDS"][chat_id])
+            text = "{0} {1} {2} {3}".format(LANG["notify_stat_for"], chat_id, LANG["now"], globals()["CONFIG_DICT"]["CHAT_IDS"][chat_id])
             retur = {"text":text}
             return(retur)
         else:
-            text = "Я вас не знаю"
+            text = LANG["unknown_user"]
             retur = {"text":text}
             return(retur)
     else:
-        text = 'Текущее значение: '+str(CONFIG_DICT["CHAT_IDS"][chat_id])+'\nНабери: /notify <on/off>'
+        text = LANG["current"]+str(CONFIG_DICT["CHAT_IDS"][chat_id])+'\n'+LANG["type"]+'/notify <on/off>'
         retur = {"text":text}
         return(retur)
 
@@ -2043,15 +2078,15 @@ def set_filter(arg=None, chat_id=None):
     if (arg or arg == 0) and str(arg).isdigit():
         arg = int(round(float(arg)))
         if arg < 0:
-            text = 'Число должно быть положительным'
+            text = LANG["num_must_be_posit"]
             retur = {"text":text}
             return(retur)
         globals()["FILTER_CHAT_IDS"][chat_id] = arg 
-        text = "Статус уведомлений фильтра для {0} теперь {1}".format(chat_id, FILTER_CHAT_IDS[chat_id])
+        text = "{0} {1} {2} {3}".format(LANG["filter_stat"], chat_id, LANG["now"], FILTER_CHAT_IDS[chat_id])
         retur = {"text":text}
         return(retur)
     else:
-        text = 'Текущее значение: '+str(FILTER_CHAT_IDS[chat_id])+'\nНабери: /filter <int> (плоты прошедшие фильтр)'
+        text = LANG["current"]+str(FILTER_CHAT_IDS[chat_id])+'\n'+LANG["type"]+'/filter <int>'
         retur = {"text":text}
         return(retur)
 
@@ -2088,11 +2123,11 @@ def check_plots_dirs(arg=None):
                     text += process.stdout
                     added_dirs_list.append(match[0])
         if text == "\n":
-            text = "Список директорий не именился"
+            text = LANG["dirs_not_change"]
         retur = {"text":text}
         return(retur)
     else:
-        text = 'Для удаления директорий, в которых нет плотов и добавления директорий в которых я найду плоты, набери: /check_plots_dirs 1'
+        text = LANG["for_dell_dirs_type"]
         retur = {"text":text}
         return(retur)
 
@@ -2101,11 +2136,11 @@ def show_log(arg=None):
         try:
             arg = float(arg)
         except(ValueError):
-            text = 'Набери: /log <float> (часов)'
+            text = LANG["type"]+'/log <float> (hours)'
             retur = {"text":text}
             return(retur)
         if arg < 0:
-            text ='Число должно быть положительным'
+            text = LANG["num_must_be_posit"]
             retur = {"text":text}
             return(retur)
         with open(CONFIG_DICT["WATCHDOG_LOG"]) as f:
@@ -2125,7 +2160,7 @@ def show_log(arg=None):
         return(retur)
     
     else:
-        text = 'Набери: /log <float> (часов)'
+        text = LANG["type"]+'/log <float> (hours)'
         retur = {"text":text}
         return(retur)
 
@@ -2180,7 +2215,7 @@ def message_to_all(text, disable_notification, node=1):
 
 def set_farm(update: Update, context: CallbackContext) -> None:
     if not int(update.message.text) in CONFIG_DICT["NODE_LIST"]:
-        reply_message(update, "Неправильный номер", reply_markup=REPLY_MARKUP[update['message']['chat']['id']])
+        reply_message(update, LANG["wrong_num"], reply_markup=REPLY_MARKUP[update['message']['chat']['id']])
         return
     context.user_data["farm"] = update.message.text
     text = "NODE "+str(context.user_data["farm"])+"\n"
@@ -2244,7 +2279,7 @@ def my_command_handler(update: Update, context: CallbackContext):
             os.remove('bot_send.txt')
         else:
             if not text or text == "NODE "+str(context.user_data["farm"])+"\n\n":
-                text += "Нет данных"
+                text += LANG["no_data"]
             reply_message(update, text, reply_markup)
     else: start(update, context)
         
@@ -2252,14 +2287,22 @@ def main() -> None:
     """Start the bot."""
     updater = Updater(CONFIG_DICT["TELEGRAM_BOT_TOKEN"])
 
-    conv_handler = ConversationHandler(
+    conv_handler_start = ConversationHandler(
             entry_points=[CommandHandler('start', start)],
             states={
                 PASSWORD: [MessageHandler(Filters.text , password)]},
             fallbacks=[CommandHandler('cancel', cancel)],
             conversation_timeout=(30)
         )
-    updater.dispatcher.add_handler(conv_handler)
+    conv_handler_language = ConversationHandler(
+            entry_points=[CommandHandler('language', choose_language_1)],
+            states={
+                LANGUAGE: [MessageHandler(Filters.text , choose_language_2)]},
+            fallbacks=[CommandHandler('cancel', cancel)],
+            conversation_timeout=(15)
+        )
+    updater.dispatcher.add_handler(conv_handler_start)
+    updater.dispatcher.add_handler(conv_handler_language)
     updater.dispatcher.add_handler(CallbackQueryHandler(button))
     updater.dispatcher.add_handler(CommandHandler('help', my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(MessageHandler(Filters.regex('^(\d{,2})$') & USERS_FILTER, set_farm)),
@@ -2306,16 +2349,19 @@ def plots_check_time(log):
             if value == "not set":
                 continue
             if int(matches[0][2]) >= value:
-                message(key, "Фильтр: {0}/{1}. Доказательств: {2}. Отклик: {3}\n{4}".format(matches[0][2], matches[0][5], matches[0][3], round(float(matches[0][4]), 2), datetime.datetime.fromtimestamp(time.mktime(datetime.datetime.now().timetuple()))), True)
+                message(key, "{0} {1}/{2}. {3} {4}. {5} {6}\n{7}".format(LANG["filter"],
+                                            matches[0][2], matches[0][5], LANG["proofs"], 
+                                            matches[0][3], LANG["ping"], 
+                                            round(float(matches[0][4]), 2), datetime.datetime.fromtimestamp(time.mktime(datetime.datetime.now().timetuple()))), True)
                 
         if not globals()["plot_count"] and matches[0][5]:
             globals()["plot_count"] = int(matches[0][5])
         if globals()["plot_count"] and (int(matches[0][5]) + 1) < int(globals()["plot_count"]):
-            message_to_all("Уменьшилось количество плотов с {0} до {1}, проверьте диски".format(globals()["plot_count"], matches[0][5]), None)
+            message_to_all("{0} {1} {2} {3}, {4}".format(LANG["decrease_plot_num"], globals()["plot_count"], LANG["on"], matches[0][5], LANG["check_discs"]), None)
         globals()["plot_count"] = matches[0][5]
 
         if int(matches[0][3]) > 0:
-            message_to_all("Найдено доказательство! в: {0}".format(matches[0][1]), None)
+            message_to_all("{0} {1}".format(LANG["proof_find"], matches[0][1]), None)
 
         if float(matches[0][4]) > 5:
             pass
@@ -2332,14 +2378,14 @@ def plots_check_time(log):
                 f = open(CONFIG_DICT["WATCHDOG_LOG"], 'a')
             dt = datetime.datetime.now()
             timestamp_now = datetime.datetime.fromtimestamp(time.mktime(dt.timetuple()))
-            log = "{0}    Долгий отклик от плота:{1} сек. Фильтр прошли: {2}/{3}\n".format(str(timestamp_now), matches[0][4], matches[0][2], matches[0][5])
+            log = "{0}    {1}{2} {3} {4}/{5}\n".format(str(timestamp_now), LANG["long_ping"], matches[0][4], LANG["filter_pass"], matches[0][2], matches[0][5])
             f.write(log)
             f.close()
 
 
     matches = re.findall(r"Adding coin: {'amount': (\d+)", log)
     if matches:
-        message_to_all("Пополнение кошелька на: {0}".format(int(matches[0])/1000000000000), None)
+        message_to_all("{0} {1}".format(LANG["wallet_in"], int(matches[0])/1000000000000), None)
 
     matches = re.findall(
                 r"Looking up qualities on (.+) took: (\d.\d+)", log
@@ -2349,11 +2395,11 @@ def plots_check_time(log):
 
         dt = datetime.datetime.now()
         timestamp_now = datetime.datetime.fromtimestamp(time.mktime(dt.timetuple()))
-        log = "{0}    Долгий отклик от плота:{1}. ({2} сек.)\n".format(str(timestamp_now), matches[0][0], round(float(matches[0][1]), 2))
+        log = "{0}    {1}{2}. ({3} {4})\n".format(str(timestamp_now), LANG["long_ping"], matches[0][0], round(float(matches[0][1]), 2), LANG["sec"])
         f.write(log)
         f.close()
 
-        message_to_all("Долгий отклик от плота: {0}. ({1} сек.)".format(matches[0][0], round(float(matches[0][1]), 2)), True)
+        message_to_all("{0} {1}. ({2} {3})".format(LANG["long_ping"], matches[0][0], round(float(matches[0][1]), 2), LANG["sec"]), True)
 
     matches = re.findall(
                 r" ([WE][AR][R][NO][IR][N ][G ]) +(.+)$", log
@@ -2372,10 +2418,10 @@ def del_trash():
         with open(CONFIG_DICT["PLOTS_FILE"], "rb") as f:
             all_plots = pickle.load(f)
         if not all_plots:
-            print("Ничего не сеялось")
+            print(LANG["no_plotted"])
             return
     except(FileNotFoundError):
-        print("Не нашел файла с плотами")
+        print(LANG["not_find_plot_file"])
         return
 
     for plot in all_plots:
@@ -2383,7 +2429,7 @@ def del_trash():
             tmp = 0
             tmp2 = 0
             dst = 0
-            print("Очистка плота: {0}:".format(plot.name))
+            print("{0} {1}:".format(LANG["clear_plot"], plot.name))
             #Удаляем темп файлы
             temp = plot.temp+"/temp"
             try:
@@ -2391,9 +2437,9 @@ def del_trash():
                 for filename in file_list:
                     os.remove(temp+"/"+filename)
                     tmp += 1
-                print("Удалил {0} файлов в {1}".format(str(tmp), temp))
+                print("{0} {1} {2} {3}".format(LANG["deleted"], str(tmp), LANG["files_in"], temp))
             except(FileNotFoundError):
-                print("Не смог удалить файлы из {0}".format(temp))
+                print("{0} {0}".format(LANG["cant_dell_files_from"], temp))
             #Удаляем темп2 файлы
             if plot.temp2:
                 temp2 = plot.temp2+"/plots"
@@ -2403,9 +2449,9 @@ def del_trash():
                         if plot.name and filename.count(plot.name) and filename.count("2.tmp"):
                             os.remove(temp2+"/"+filename)
                             tmp2 += 1
-                    print("Удалил {0} файлов в {1}".format(str(tmp2), temp2))
+                    print("{0} {1} {2} {3}".format(LANG["deleted"], str(tmp2), LANG["files_in"], temp2))
                 except(FileNotFoundError):
-                    print("Не смог удалить файлы из {0}".format(temp2))
+                    print("{0} {1}".format(LANG["cant_dell_files_from"], temp2))
             #Удаляем dest файлы
             dest = plot.dest+"/plots"
             try:
@@ -2414,15 +2460,15 @@ def del_trash():
                     if plot.name and filename.count(plot.name) and filename.count("2.tmp"):
                         os.remove(dest+"/"+filename)
                         dst += 1
-                print("Удалил {0} файлов в {1}".format(str(dst), dest))
+                print("{0} {1} {2} {3}".format(LANG["deleted"], str(dst), LANG["files_in"], dest))
             except(FileNotFoundError):
-                print("Не смог удалить файлы из {0}".format(dest))
+                print("{0} {1}".format(LANG["cant_dell_files_from"], dest))
             #Удаляем log файлы
             file_list = os.listdir(CONFIG_DICT["PLOTLOGPATCH"])
             for filename in file_list:
                 if plot.name and filename.count(plot.name):
                     os.remove(CONFIG_DICT["PLOTLOGPATCH"]+"/"+filename)
-            print("Удалил лог файл в {0}\n".format(CONFIG_DICT["PLOTLOGPATCH"]))
+            print("{0} {0}\n".format(LANG["dell_log_in"], CONFIG_DICT["PLOTLOGPATCH"]))
     #Удаляем plots_file.sys файл
     os.remove(CONFIG_DICT["PLOTS_FILE"])
 
@@ -2442,8 +2488,6 @@ if __name__ == '__main__':
 
     plot_count = None
 
-    START_TEXT = 'Выберите действие:\n/wd <секунд>\n/parallel_plots <int>; /table <int>\n/set_plot_config; \n/notify <on/off>; /filter <int>\n/check_plots_dirs 1\n/log <float> (часов)'
-
     K = 1024**3
     PLOTS_SIZES = {25:0.6, 32:101.4, 33:208.8, 34:429.8, 35:884.1}
     PLOTS_SIZES_PLOTTING = {25:1.8, 32:239, 33:521, 34:1041, 35:2175}
@@ -2452,16 +2496,19 @@ if __name__ == '__main__':
     REPLY_MARKUP = {}
     KEYBOARD = {}
     MESSAGES = {} #Запоминаем сообщения от пользователей, для последующего удаления из них кнопок, так же создаем переменные о фильтрах и клавиатурах для пользователей
-    refresh_chat_ids_for_new_user()
+    
+    LANG = english
+    START_TEXT = LANG["start_text"]
+    language_to_harvesters(CONFIG_DICT["LANGUAGE"], True)
 
     plot_count_all_harvesters = 0
 
     try:
         if param[1] != "-s":
-            message_to_all("Бот запущен. Проверьте, возможно было отключение электричества", None)
-        print("Запуск c параметрами\n")
+            message_to_all(LANG["start_bot"], None)
+        print(LANG["start_with_params"]+"\n")
     except(IndexError):
-        print("Запуск без параметров\nСейчас произойдет очистка недосозданных плотов, нажмите ctrl+с для отмены")
+        print(LANG["start_without_params"]+"\n"+LANG["cancel_dell_plots"])
         #Задержка при запуске вместе с системой, что бы ты подумал
         t = 15
         while t > 0:       
@@ -2471,7 +2518,7 @@ if __name__ == '__main__':
         if CONFIG_DICT["HARVESTER_MAC"]:
             send_magic_packet(*CONFIG_DICT["HARVESTER_MAC"])
         del_trash()
-        message_to_all("Бот запущен. Проверьте, возможно было отключение электричества", None)
+        message_to_all(LANG["start_bot"], None)
 
     Process(target=plot_manager).start()
     que = {"AUTO_P":CONFIG_DICT["AUTO_P"], 
@@ -2483,7 +2530,7 @@ if __name__ == '__main__':
 
     threading.Thread(target=LogParser, args=(CONFIG_DICT["LOGPATCH"],)).start()  #читаем логи
     # Process(target=app.run(host='0.0.0.0')).start()     -Flask
-    # threading.Thread(target=not_sleep, args=(1,)).start()  #not_sleep
+    threading.Thread(target=not_sleep, args=(1,)).start()  #not_sleep
     #Для фермы1
     if CONFIG_DICT["FULL_NODE"]:
         threading.Thread(target=watchdog).start()  #WatchDog
