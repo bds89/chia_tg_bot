@@ -74,7 +74,10 @@ russian = {"chia_stat":"Статус Chia","get_balance":"Узнать бала�
         "start_with_params":"Запуск c параметрами","start_without_params":"Запуск без параметров",
         "cancel_dell_plots":"Сейчас произойдет очистка недосозданных плотов, нажмите ctrl+с для отмены",
         "finished_move":"Закончил перемещение:", "plots_from":"плотов из", "time_done":"Время выполнения:",
-        "apply_lang":"Выбран русский язык"}
+        "apply_lang":"Выбран русский язык","no_data_from_trex":"Нет ответа от T-Rex","gpu_pool_difficulty": "Сложность",
+        "hashrate":"Хэшрейт","hashrate_day":"Хэшрейт за день","gpu_id":"GPU ID","gpu_name":"GPU NAME","gpu_fan_speed":"Fan","gpu_power":"Мощность",
+        "gpu_temperature":"Температура","gpu_invalid_count":"gpu_invalid_count","gpu_rejected_count":"gpu_rejected_count","gpu_sharerate":"gpu_sharerate",
+        "gpu_sharerate_average":"gpu_sharerate_average","gpu_solved_count":"gpu_solved_count"}
 
 english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'day', 'dnya': 'days', 'dney': 'days', 
         'kolvo_popytok': 'The number of attempts exceeded, contact the administrator', 'need_auth': 'Authorization is required, enter the password:', 
@@ -131,4 +134,7 @@ english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'da
         'start_bot': 'Bot is running.Check, it may have been disconnected electricity', 'start_with_params': 'Launch with parameters', 
         'start_without_params': 'Running without parameters', 'cancel_dell_plots': 'There will now be cleaned by false plots, press Ctrl + C to cancel', 
         'finished_move': 'Finished moving:', 'plots_from': 'plots out', 'time_done': 'Lead time:',
-        "apply_lang":"English is selected"}
+        "apply_lang":"English is selected","no_data_from_trex":"No response from T-Rex","gpu_pool_difficulty": "Difficulty",
+        "hashrate":"Hashrate","hashrate_day":"Hashrate day","gpu_id":"GPU ID","gpu_name":"GPU NAME","gpu_fan_speed":"Fan","gpu_power":"Power",
+        "gpu_temperature":"Temperature","gpu_invalid_count":"gpu_invalid_count","gpu_rejected_count":"gpu_rejected_count","gpu_sharerate":"gpu_sharerate",
+        "gpu_sharerate_average":"gpu_sharerate_average","gpu_solved_count":"gpu_solved_count"} 

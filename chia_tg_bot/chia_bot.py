@@ -1,4 +1,4 @@
-import logging, re, os, json, yaml, datetime, psutil, time, sys, pickle, socket, threading, subprocess
+import logging, re, os, json, yaml, datetime, psutil, time, sys, pickle, socket, threading, subprocess, urllib.request
 from subprocess import Popen, PIPE
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Bot, ReplyKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters, ConversationHandler
@@ -60,6 +60,8 @@ def get_keyboard():
     if CONFIG_DICT["SSD_DEVICES"]: keyboard[1].append(line)
     line = InlineKeyboardButton(LANG["get_balance"], callback_data='get_balance()')
     if CONFIG_DICT["FULL_NODE"]: keyboard[1].append(line)
+    line = InlineKeyboardButton("GPU info", callback_data='get_gpu_info()')
+    if CONFIG_DICT["T_REX"]: keyboard[1].append(line)
     return keyboard
 
 def num_to_scale(value, numsimb):
@@ -163,6 +165,16 @@ def sys_crit_params():
             HDD_temp = int(cli[:-1])
             if HDD_temp >= CONFIG_DICT["CRITICAL_PARAMS"]["HDD_temperature"]:
                 text += "HDD temperature "+key+" = "+str(HDD_temp)+"℃\n"
+    #GPU temp
+    if CONFIG_DICT["T_REX"]:
+        try:
+            contents = urllib.request.urlopen("http://127.0.0.1:4067/summary").read()
+            data = json.loads(contents)
+            for item in data["gpus"]:
+                if int(item["temperature"]) >= CONFIG_DICT["CRITICAL_PARAMS"]["GPU_temperature"]:
+                    text += "GPU temperature "+str(item["device_id"])+" = "+str(item["temperature"])+"℃\n"
+        except:
+            pass
     return text
 
 
@@ -326,6 +338,29 @@ def get_balance():
     else:
         return(retur)
 
+def get_gpu_info():
+    text = ""
+    try:
+        contents = urllib.request.urlopen("http://127.0.0.1:4067/summary").read()
+    except:
+        text = LANG["no_data_from_trex"]
+        retur = {"text":text}
+        return(retur)
+    data = json.loads(contents)
+    text += "{0}: {1}\n".format(LANG["gpu_pool_difficulty"], data["active_pool"]["difficulty"])
+    if len(data["gpus"]) > 1:
+        text += "{0}: {1}\n{2}: {3}\n\n".format(LANG["hashrate"], round(data["hashrate"]/(10**6),2), LANG["hashrate_day"], round(data["hashrate_day"]/(10**6),2))
+    for item in data["gpus"]:
+        text += "{0}: {1}\n{2}: {3}\n{4}: {5}\n{6}: {7}\n{8}: {9}\n{10}: {11}\n{12}: {13}\n".format(LANG["gpu_id"], item["gpu_id"], 
+                    LANG["gpu_name"], item["name"], LANG["hashrate"], round(item["hashrate"]/(10**6),2), LANG["hashrate_day"], round(item["hashrate_day"]/(10**6),2),
+                    LANG["gpu_fan_speed"], item["fan_speed"], LANG["gpu_power"], item["power"], LANG["gpu_temperature"], item["temperature"])
+
+    text += "{0}: {1}\n{2}: {3}\n{4}: {5}\n{6}: {7}\n".format(LANG["gpu_invalid_count"], data["invalid_count"], LANG["gpu_rejected_count"], data["rejected_count"],
+                    LANG["gpu_sharerate"], data["sharerate"], LANG["gpu_sharerate_average"], data["sharerate_average"], LANG["gpu_solved_count"], data["solved_count"])
+    retur = {"text":text}
+    return(retur)
+
+
 @app.route('/get_status')
 def get_status():
     text = ""
@@ -433,7 +468,7 @@ def get_status():
         kol_plots_dict = choose_plot_size(float(value[2]))
         if kol_plots_dict:
             Stat["space_left"] += kol_plots_dict[1][0]*PLOTS_SIZES[32]*K + kol_plots_dict[1][1]*PLOTS_SIZES[33]*K
-    act_plots = num_act_plots(4)["num"]
+    act_plots = num_act_plots()["num"]
     if not act_plots: time_left = "∞"
     else: time_left = str(datetime.timedelta(seconds=round(((Stat["space_left"]/(1000**3)) * Stat["AVG_time_per_Gb"])/act_plots)))
     text = text + "{0} {1} GiB {2} {3} ".format(LANG["left_to_plot"], round(Stat["space_left"]/(1000**3)), LANG["za"], time_delta_rus(time_left)) + "\n" 
@@ -1522,11 +1557,13 @@ def autoplot(auto):
             return(retur)
 
 
-def num_act_plots(table):
+def num_act_plots(table=None):
     num = 0
     num_with_table = 0
     ready = False
-    weight_of_plots = {25:0.1, 32:1, 33:2, 34:4, 35:8}
+    if table: weight_of_plots = {25:0.1, 32:1, 33:2, 34:4, 35:8}
+    else: weight_of_plots = {25:1, 32:1, 33:1, 34:1, 35:1}
+        
     try:
         os.mkdir(CONFIG_DICT["PLOTLOGPATCH"])
     except(OSError):
@@ -1540,7 +1577,7 @@ def num_act_plots(table):
                 size = int(re.findall(r'Plot size is: (\d+)', log)[0])
                 
                 num += weight_of_plots[size]
-                if re.search(r'Computing table '+str(table), log):
+                if table and re.search(r'Computing table '+str(table), log):
                     num_with_table += weight_of_plots[size]
     if num_with_table == num:
         ready = True        
@@ -1660,85 +1697,103 @@ def plot_manager():
                     sorted_for_sort= {k: v for k, v in sorted_tuples}
                     for key in sorted_for_sort.keys():
                         plots_sizes_sorted[key] = plots_sizes[key]
+                    sizes = [33,32]
                     #Будем пробовать сеять подходящий вариант
-                    for i in range(len(plots_sizes_sorted)):
-                        if plots_sizes_sorted[list(plots_sizes_sorted)[i]][33] > 0: size = 33
-                        else: size = 32
-                        #Выбираем темп папку, сначала САТА
-                        #Сначала сам на себя, если это САТА
-                        patch = list(plots_sizes_sorted)[i]
-                        if re.search(r"[Ss][Aa][Tt][Aa]", patch) and (Disk_list[patch] - PLOTS_SIZES_PLOTTING[size] * K - PLOTS_SIZES[size] * K) >= 0:
-                            busy_sata = []
-                            for plot in all_plots:
-                                if plot.__class__.__name__ == "Plot":
-                                    if plot.temp == patch or plot.dest == patch:
-                                        busy_sata.append(patch)
-                            if patch not in busy_sata: temp = patch
-                        #Если сам на себя не может, поищем другую САТА
-                        if not temp:
-                            for patch, free in Disk_list.items():
-                                if re.search(r"[Ss][Aa][Tt][Aa]", patch):
-                                    busy_sata = []                        
-                                    for plot in all_plots:
-                                        if plot.__class__.__name__ == "Plot":
-                                            if plot.temp == patch or plot.dest == patch:
-                                                busy_sata.append(patch)
-                                    if (free - PLOTS_SIZES_PLOTTING[size] * K) >= 0 and patch not in busy_sata and (list(plots_sizes_sorted)[i] != patch and que["SATA_AS_SSD"] == "yes"):
-                                        temp = patch
-                                        break
-                        #Если нечем больше сеять, все-таки попробуем сам на себя, под завязку, если это САТА
-                        if not temp:
+                    for sz in sizes:
+                        for i in range(len(plots_sizes_sorted)):
+                            temp = None
+                            temp2 = None
+                            dest = None
+                            if plots_sizes_sorted[list(plots_sizes_sorted)[i]][sz] > 0: size = sz
+                            else: continue
+                            #Выбираем темп папку, сначала САТА
+                            #Сначала сам на себя, если это САТА
                             patch = list(plots_sizes_sorted)[i]
-                            if re.search(r"[Ss][Aa][Tt][Aa]", patch) and (Disk_list[patch] - PLOTS_SIZES_PLOTTING[size] * K) >= 0:
+                            if re.search(r"[Ss][Aa][Tt][Aa]", patch) and (Disk_list[patch] - PLOTS_SIZES_PLOTTING[size] * K - PLOTS_SIZES[size] * K) >= 0:
                                 busy_sata = []
                                 for plot in all_plots:
                                     if plot.__class__.__name__ == "Plot":
                                         if plot.temp == patch or plot.dest == patch:
                                             busy_sata.append(patch)
                                 if patch not in busy_sata: temp = patch
-                        if not temp and CONFIG_DICT["SSD"]:
-                            #Найдем ССД на которых есть свободное место
-                            ssd_chart = {}
-                            for patch, disk in CONFIG_DICT["SSD"].items():
-                                free = psutil.disk_usage(disk).free
-                                total_space = psutil.disk_usage(disk).used + free
-                                for plot in all_plots:
-                                    if plot.__class__.__name__ == "Plot":
-                                        if plot.temp == patch:
-                                            total_space -= PLOTS_SIZES_PLOTTING[size] * K
-                                if free >= PLOTS_SIZES_PLOTTING[size] * K and total_space >= PLOTS_SIZES_PLOTTING[size] * K:
-                                    ssd_chart[patch] = 0
-                                #Сделаем рейтинг ССД
-                                for plot in all_plots:
-                                    if plot.__class__.__name__ == "Plot":
-                                        if plot.temp == patch:
-                                            ssd_chart[patch] += 1
-                            sorted_tuples = sorted(ssd_chart.items(), key=lambda item: item[1])
-                            sorted_ssd_chart = {k: v for k, v in sorted_tuples}
-                            if sorted_ssd_chart:
-                                temp = list(sorted_ssd_chart.keys())[0]
-                        if not temp:
-                            #Не нашел чем сеять
-                            continue
-                        
-                        #Решим что делать с temp2
-                        temp2_to_dest_num = 0
-                        for plot in all_plots:
-                            if plot.__class__.__name__ == "Plot":
-                                if plot.temp2 == list(plots_sizes_sorted)[i]:
-                                    temp2_to_dest_num += 1
-                        if temp2_to_dest_num < 2:    #Число плотов, которые будут сеятся на этот диск без копирования в конце
-                            temp2 = list(plots_sizes_sorted)[i]
-                            dest = temp2
-                        else:
-                            temp2 = None
-                            dest = list(plots_sizes_sorted)[i]
-                        if not dest:
-                            #Не нашел куда сеять
-                            continue
-                        # Создаем плот
-                        create_plot(temp, dest, temp2, size)
-                        break
+                            #Если сам на себя не может, поищем другую САТА
+                            if not temp:
+                                for patch, free in Disk_list.items():
+                                    if re.search(r"[Ss][Aa][Tt][Aa]", patch):
+                                        busy_sata = []                        
+                                        for plot in all_plots:
+                                            if plot.__class__.__name__ == "Plot":
+                                                if plot.temp == patch or plot.dest == patch:
+                                                    busy_sata.append(patch)
+                                        if (free - PLOTS_SIZES_PLOTTING[size] * K - PLOTS_SIZES[size] * K) >= 0 and patch not in busy_sata and (list(plots_sizes_sorted)[i] != patch and que["SATA_AS_SSD"] == "yes"):
+                                            temp = patch
+                                            break
+                            #Если нечем больше сеять, все-таки попробуем сам на себя, под завязку, если это САТА
+                            if not temp:
+                                patch = list(plots_sizes_sorted)[i]
+                                if re.search(r"[Ss][Aa][Tt][Aa]", patch) and (Disk_list[patch] - PLOTS_SIZES_PLOTTING[size] * K) >= 0:
+                                    busy_sata = []
+                                    for plot in all_plots:
+                                        if plot.__class__.__name__ == "Plot":
+                                            if plot.temp == patch or plot.dest == patch:
+                                                busy_sata.append(patch)
+                                    if patch not in busy_sata: temp = patch
+                            #И еще попробуем другую САТА, под завязку
+                            if not temp:
+                                for patch, free in Disk_list.items():
+                                    if re.search(r"[Ss][Aa][Tt][Aa]", patch):
+                                        busy_sata = []                        
+                                        for plot in all_plots:
+                                            if plot.__class__.__name__ == "Plot":
+                                                if plot.temp == patch or plot.dest == patch:
+                                                    busy_sata.append(patch)
+                                        if (free - PLOTS_SIZES_PLOTTING[size] * K) >= 0 and patch not in busy_sata and (list(plots_sizes_sorted)[i] != patch and que["SATA_AS_SSD"] == "yes"):
+                                            temp = patch
+                                            break
+                            if not temp and CONFIG_DICT["SSD"]:
+                                #Найдем ССД на которых есть свободное место
+                                ssd_chart = {}
+                                for patch, disk in CONFIG_DICT["SSD"].items():
+                                    free = psutil.disk_usage(disk).free
+                                    total_space = psutil.disk_usage(disk).used + free
+                                    for plot in all_plots:
+                                        if plot.__class__.__name__ == "Plot":
+                                            if plot.temp == patch:
+                                                total_space -= PLOTS_SIZES_PLOTTING[size] * K
+                                    if free >= PLOTS_SIZES_PLOTTING[size] * K and total_space >= PLOTS_SIZES_PLOTTING[size] * K:
+                                        ssd_chart[patch] = 0
+                                    #Сделаем рейтинг ССД
+                                    for plot in all_plots:
+                                        if plot.__class__.__name__ == "Plot":
+                                            if plot.temp == patch:
+                                                ssd_chart[patch] += 1
+                                sorted_tuples = sorted(ssd_chart.items(), key=lambda item: item[1])
+                                sorted_ssd_chart = {k: v for k, v in sorted_tuples}
+                                if sorted_ssd_chart:
+                                    temp = list(sorted_ssd_chart.keys())[0]
+                            if not temp:
+                                #Не нашел чем сеять
+                                continue
+                            
+                            #Решим что делать с temp2
+                            temp2_to_dest_num = 0
+                            for plot in all_plots:
+                                if plot.__class__.__name__ == "Plot":
+                                    if plot.temp2 == list(plots_sizes_sorted)[i]:
+                                        temp2_to_dest_num += 1
+                            if temp2_to_dest_num < 2:    #Число плотов, которые будут сеятся на этот диск без копирования в конце
+                                temp2 = list(plots_sizes_sorted)[i]
+                                dest = temp2
+                            else:
+                                temp2 = None
+                                dest = list(plots_sizes_sorted)[i]
+                            if not dest:
+                                #Не нашел куда сеять
+                                continue
+                            # Создаем плот
+                            create_plot(temp, dest, temp2, size)
+                            break
+                        if temp and dest and temp2: break
                     last_time = datetime.datetime.now()
                     time.sleep(5)
                     continue

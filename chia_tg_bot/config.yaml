@@ -1,6 +1,8 @@
 FULL_NODE: true/false
     #true если на данном компьютере запущен FULL NODE сервис чиа, 
     #false если на данном компьютере запущен только харвестер чиа
+T_REX: true/false
+    #Если на компьютере запущен майнер T-Rex(GPU)
 API_KEY_COINMARKETCUP: 606424d2-7082-4af8-a5fa-123456789123
     #бот берет актуальный курс чиа с https://coinmarketcap.com/ и переводит его в рубли, 
     #получите API_KEY на https://pro.coinmarketcap.com/signup, 
@@ -100,4 +102,5 @@ SSD_DEVICES:
   HDD_temperature: 45
   CPU_temperature: 80
   USED_RAM%: 95
+  GPU_temperature: 70
     #Бот пришлет уведоление всем в чате, при превышении данных порогов по температурам и использованию оперативной памяти в процентах
