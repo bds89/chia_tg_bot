@@ -12,9 +12,10 @@ setup(
     include_package_data=True,
     install_requires=[
         'Flask==2.0.1', 
-        'psutil==5.8.0', 
+        'psutil', 
         'python-telegram-bot==13.7', 
         'wakeonlan==2.0.1', 
-        'hddtemp==0.1.0'
+        'hddtemp',
+        'ccxt==1.56.41'
 ]
 )
