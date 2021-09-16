@@ -1,4 +1,4 @@
-import logging, re, os, json, yaml, datetime, psutil, time, sys, pickle, socket, threading, subprocess, urllib.request
+import logging, re, os, json, yaml, datetime, psutil, time, sys, pickle, socket, threading, subprocess, urllib.request, ccxt, math
 from subprocess import Popen, PIPE
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Bot, ReplyKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters, ConversationHandler
@@ -287,9 +287,38 @@ def help_command(arg=None):
     text = LANG["help_text"]
     retur = {"text":text}
     return(retur)
-@app.route('/get_balance')
+
+def get_binance_bal():
+    exchange = ccxt.binance(CONFIG_BINANCE)
+    globals()["balances_binance"] = exchange.fetch_balance()
+    globals()["markets_binance"] = exchange.load_markets()
+    globals()["usdt_exc_binance"] = {}
+    for name, bal in globals()["balances_binance"]["free"].items():
+        if bal > 0:
+            para = name+"/USDT"
+            if para in globals()["markets_binance"]:
+                globals()["usdt_exc_binance"][name] = exchange.fetchTicker(para)['ask']
+    
+def get_okex_bal():
+    exchange = ccxt.okex5(CONFIG_OKEX)
+    globals()["balances_okex"] = exchange.fetch_balance()
+    globals()["markets_okex"] = exchange.load_markets()
+    globals()["usdt_exc_okex"] = {}
+    for name, bal in globals()["balances_okex"]["free"].items():
+        if bal > 0:
+            para = name+"/USDT"
+            if para in globals()["markets_okex"]:
+                globals()["usdt_exc_okex"][name] = exchange.fetchTicker(para)['ask']
+
 def get_balance():
-    flist = ['Sync status: ','Total Balance: ','Pending Total Balance: ','Spendable: ']
+    if CONFIG_DICT["BINANCE_KEY"] and CONFIG_DICT["BINANCE_SECRET"]:
+        binance_thread_get_bal = threading.Thread(target=get_binance_bal)
+        binance_thread_get_bal.start()
+    if CONFIG_DICT["OKEX_KEY"] and CONFIG_DICT["OKEX_SECRET"] and CONFIG_DICT["OKEX_PASS"]:
+        okex_thread_get_bal = threading.Thread(target=get_okex_bal)
+        okex_thread_get_bal.start()
+
+    flist = ['Sync status: ']
     fdict = {}
 
     cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet show').read()
@@ -317,8 +346,8 @@ def get_balance():
 
             chia_price_usd = float(data["data"]["9258"]["quote"]["USD"]["price"])
             chia_percent_change_24h = float(data["data"]["9258"]["quote"]["USD"]["percent_change_24h"])
-            result = re.match(r"[0-9.e-]*", fdict['Total Balance: '])
-            XCH_balance = float(result.group(0))
+            result = re.findall(r"Total Balance: ([0-9.e-]*)", cli)[0]
+            XCH_balance = float(result)
             if CONFIG_DICT["LANGUAGE"] == "russian":
                 url = "https://www.cbr-xml-daily.ru/daily_json.js"
                 r = get(url)
@@ -330,13 +359,119 @@ def get_balance():
                 text = text+"{0} XCH * {1}$({2}%) = {3} $\n".format(XCH_balance, round(chia_price_usd,2), round(chia_percent_change_24h), round(XCH_balance*chia_price_usd,2))
         except (ValueError, ConnectionError, Timeout, TooManyRedirects) as e:
             print(e)
+
+    binance_thread_get_bal.join(5)
+    if "balances_binance" in globals() and "markets_binance" in globals() and not binance_thread_get_bal.is_alive():
+        text += LANG["binance_balances"]+"\n"
+        keyboard = [[]]
+        lvl1 = 0
+        lvl2 = 0
+        for name, bal in globals()["balances_binance"]["free"].items():
+            if bal > 0:
+                para = name+"/USDT"
+                if para in globals()["markets_binance"]:
+                    usdt_exc = globals()["usdt_exc_binance"][name]
+                    if "USD_price" in locals():
+                        text +="{0}: {1} * {2}$ = {3} $ = {4} ₽\n".format(name,bal,round(usdt_exc,4),round(bal*usdt_exc,2),round(bal*usdt_exc*USD_price,2))
+                    else: 
+                        text +="{0}: {1} * {2}$ = {3} $\n".format(name,bal,round(usdt_exc,4),round(bal*usdt_exc,2))
+                    #Кнопки
+                    line = InlineKeyboardButton(name, callback_data='binance_sell("'+name+'")_confirm')
+                    if lvl1 < 5:            
+                        keyboard[lvl2].append(line)
+                        lvl1 += 1
+                    else:
+                        lvl2 += 1
+                        lvl1 = 0
+                        keyboard.append([])
+                        keyboard[lvl2].append(line)
+
+                if name == "USDT": 
+                    if "USD_price" in locals(): text += "{0}: {1}$ = {2} ₽\n".format(name,bal,round(bal*USD_price,2))
+                    else: text += "{0}: {1} $ \n".format(name,bal)
+        globals().pop("balances_binance")
+        globals().pop("markets_binance")
+        globals().pop("usdt_exc_binance")          
+
+    okex_thread_get_bal.join(5)
+    if "balances_okex" in globals() and "markets_okex" in globals() and not okex_thread_get_bal.is_alive():
+        text += LANG["okex_balances"]+"\n"
+        for name, bal in globals()["balances_okex"]["free"].items():
+            if bal > 0:
+                para = name+"/USDT"
+                if para in globals()["markets_okex"]:
+                    usdt_exc = globals()["usdt_exc_okex"][name]
+                    if "USD_price" in locals():
+                        text +="{0}: {1} * {2}$ = {3} $ = {4} ₽\n".format(name,bal,round(usdt_exc,4),round(bal*usdt_exc,2),round(bal*usdt_exc*USD_price,2))
+                    else: 
+                        text +="{0}: {1} * {2}$ = {3} $\n".format(name,bal,round(usdt_exc,4),round(bal*usdt_exc,2))
+                    # #Кнопки
+                    # line = InlineKeyboardButton(name, callback_data='binance_sell("'+name+'")_confirm')
+                    # if lvl1 < 5:            
+                    #     keyboard[lvl2].append(line)
+                    #     lvl1 += 1
+                    # else:
+                    #     lvl2 += 1
+                    #     lvl1 = 0
+                    #     keyboard.append([])
+                    #     keyboard[lvl2].append(line)
+
+                if name == "USDT": 
+                    if "USD_price" in locals(): text += "{0}: {1}$ = {2} ₽\n".format(name,bal,round(bal*USD_price,2))
+                    else: text += "{0}: {1} $ \n".format(name,bal)
+        globals().pop("balances_okex")
+        globals().pop("markets_okex")
+        globals().pop("usdt_exc_okex") 
+
+
+        retur = {"text":text, "keyboard":keyboard}
     else: 
-        pass
+        retur = {"text":text}
+
+    return(retur)
+
+def binance_sell(name):
+    text = ""
+    exchange = ccxt.binance(CONFIG_BINANCE)
+    markets = exchange.load_markets()
+    s = name+'/USDT'
+    base = markets[s]['base']
+    # если выставлять лимитную заявку на продаже по лучшей цене в книге
+    bestAsk = exchange.fetchTicker(s)['ask']
+    balance = exchange.fetch_balance()[base]['free']
+    amount = balance
+    #округление до требуемой точности
+    amount = (math.floor(amount*10**markets[s]['precision']['amount'])/
+            10**markets[s]['precision']['amount'])
+    # есть требования на минимальный объем
+    if amount < markets[s]['limits']['amount']['min']:
+        text += "{0} {1} {2} {3}\n".format(LANG["not_enought_mon"], name, LANG["for_sell_req"], markets[s]['limits']['amount']['min'])
+    # на максимальный
+    if amount > markets[s]['limits']['amount']['max']:
+        amount = 0.9*markets[s]['limits']['amount']['max']
+        #округление до требуемой точности
+        amount = (math.floor(amount*10**markets[s]['precision']['amount'])/
+                10**markets[s]['precision']['amount'])
+    # есть требование к этому cost = price * amount
+    if markets[s]['limits']['cost']['min'] and amount*bestAsk < markets[s]['limits']['cost']['min']:
+        text += "{0} {1} {2} {3}\n".format(LANG["not_enought_mon"], name, LANG["for_sell_req"], round(markets[s]['limits']['cost']['min']/bestAsk,4))
+    if markets[s]['limits']['cost']['max'] and amount*bestAsk > markets[s]['limits']['cost']['max']:
+        amount = markets[s]['limits']['cost']['max']/bestAsk
+        #округление до требуемой точности
+        amount = (math.floor(amount*10**markets[s]['precision']['amount'])/
+                10**markets[s]['precision']['amount'])
+    params = {
+        'test': True,  # test if it's valid, but don't actually place it
+    }
+    if not text:
+        #наконец есть жб объем открываем ордер
+        order = exchange.create_order(s, 'limit', 'sell', amount, bestAsk)
+        for key, value in order.items():
+            if value and not type(value) is dict and not type(value) is list:
+                text += str(key)+": "+str(value)+"\n"
+        print(order)
     retur = {"text":text}
-    if(request):
-        return(text)
-    else:
-        return(retur)
+    return(retur)
 
 def get_gpu_info():
     text = ""
@@ -347,7 +482,7 @@ def get_gpu_info():
         retur = {"text":text}
         return(retur)
     data = json.loads(contents)
-    text += "{0}: {1}\n".format(LANG["gpu_pool_difficulty"], data["active_pool"]["difficulty"])
+    text += "{0}: {1}\n".format(LANG["gpu_difficulty"], round(data["difficulty"],2))
     if len(data["gpus"]) > 1:
         text += "{0}: {1}\n{2}: {3}\n\n".format(LANG["hashrate"], round(data["hashrate"]/(10**6),2), LANG["hashrate_day"], round(data["hashrate_day"]/(10**6),2))
     for item in data["gpus"]:
@@ -355,8 +490,7 @@ def get_gpu_info():
                     LANG["gpu_name"], item["name"], LANG["hashrate"], round(item["hashrate"]/(10**6),2), LANG["hashrate_day"], round(item["hashrate_day"]/(10**6),2),
                     LANG["gpu_fan_speed"], item["fan_speed"], LANG["gpu_power"], item["power"], LANG["gpu_temperature"], item["temperature"])
 
-    text += "{0}: {1}\n{2}: {3}\n{4}: {5}\n{6}: {7}\n".format(LANG["gpu_invalid_count"], data["invalid_count"], LANG["gpu_rejected_count"], data["rejected_count"],
-                    LANG["gpu_sharerate"], data["sharerate"], LANG["gpu_sharerate_average"], data["sharerate_average"], LANG["gpu_solved_count"], data["solved_count"])
+    text += "{0}: {1}\n".format(LANG["gpu_invalid_count"], data["invalid_count"])
     retur = {"text":text}
     return(retur)
 
@@ -439,7 +573,10 @@ def get_status():
                         for plot in all_plots:
                             if plot.__class__.__name__ == "Plot":
                                 if filename.count(plot.name):
-                                    dir_plots.append(plot.temp+"/temp ["+str(plot.temp2)+"/plots] ➜➜➜ "+plot.dest+"/plots: (k"+plot.size+")")
+                                    if hasattr(plot, 'threads'): #потом можно удалить это условие
+                                        dir_plots.append(plot.temp+"/temp\n["+str(plot.temp2)+"/plots]\n➜ "+plot.dest+"/plots: (k"+plot.size+") (r"+plot.threads+")")
+                                    else:
+                                        dir_plots.append(plot.temp+"/temp\n["+str(plot.temp2)+"/plots]\n➜ "+plot.dest+"/plots: (k"+plot.size+")")
                                     progress_plots.append(log.count("\n"))
                     else:
                         tmp = re.findall(r"Starting plotting progress into temporary dirs: /\w+/(.+) and /\w+/(.+)", log)
@@ -452,9 +589,9 @@ def get_status():
     except(ZeroDivisionError):
         num_string_100 = 2627
     text += "<b>"+LANG["now_plots"]+"</b>\n"
+
     for dirp, progp in zip(dir_plots, progress_plots):
         text = text + dirp+"\n"+num_to_scale((progp/num_string_100*100), 20)+" "+str(round(progp/num_string_100*100))+"%\n"
-
     try:
         Stat["AVG_Final_file_size"] = sum(Stat["Final_file_size"]) / len(Stat["Final_file_size"])
         Stat["AVG_Total_time"] = sum(Stat["Total_time"]) / len(Stat["Total_time"])
@@ -535,33 +672,14 @@ def get_ssd_status():
     else:
         return(retur)
 
-@app.route('/get_sys_info')
-def get_sys_info():
-    Used_RAM = psutil.virtual_memory()[2]
-
-    Used_SWAP = psutil.swap_memory()[3]
-
-    Used_CPU = psutil.cpu_percent(interval=1, percpu=False)
-
-    CPU_freq = round(psutil.cpu_freq(percpu=False)[0])
-
+def disk_info():
+    if "disk_inf" in globals() and time.time() - globals()["disk_inf"]["time"] < 15:
+        return
     Disk_list = disk_list(min_size=250*1000000000, full=True)
     Disk_list_keys = list(Disk_list.keys())
     Disk_list_keys.sort()
-
-    CPU_temp = psutil.sensors_temperatures(fahrenheit=False)["coretemp"][0][1]
-
-    fan_list = psutil.sensors_fans()
-    FAN = "no fan"
-    for key, value in fan_list.items():
-        for i in value:
-            if i[1]>0:
-                FAN = i[1]
-
-    Sys_start_at = datetime.datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
     
-    text = "<b>System info:</b>\n"
-    text = text + "<b>RAM:</b>\nUsed_RAM: {0}%. Used_SWAP: {1} %\n<b>CPU:</b>\nUsed_CPU: {2} %. CPU_freq: {3} MHz.\nCPU_Temp: {4} C. FAN: {5} RPM\n<b>HDD/NVME:</b>\n".format(Used_RAM,Used_SWAP,Used_CPU,CPU_freq,CPU_temp, FAN)
+    text = ""
     for key in Disk_list_keys:
         #Get temperature
         command = ('sudo hddtemp -n '+key).split()
@@ -578,6 +696,44 @@ def get_sys_info():
             text = text + "{0} ({1}){4}:\nTotal: {2} GB. Free: {3} GB\nUsed: {5} {6}%".format(key, Disk_list[key][4],round((Disk_list[key][0]/1000000000), 2),round((Disk_list[key][2]/1000000000), 2), cli, num_to_scale(Disk_list[key][3], 19), Disk_list[key][3]) + "\n"
         else:
             text = text + "{0} ({1}){4}:\nTotal: {2} GB. Free: <u>{3}</u> GB ❗\nUsed: {5} {6}%".format(key, Disk_list[key][4], round((Disk_list[key][0]/1000000000), 2),round((Disk_list[key][2]/1000000000), 2), cli, num_to_scale(Disk_list[key][3], 19), Disk_list[key][3]) + "\n"
+
+        globals()["disk_inf"] = {}
+        globals()["disk_inf"]["text"] = text
+        globals()["disk_inf"]["time"] = time.time()
+
+def cpu_use():
+    while True:
+        psutil.cpu_percent(percpu=False)
+        time.sleep(5)
+
+@app.route('/get_sys_info')
+def get_sys_info():
+    disk_info_thread = threading.Thread(target=disk_info)
+    disk_info_thread.start()
+
+    Used_RAM = psutil.virtual_memory()[2]
+    Used_SWAP = psutil.swap_memory()[3]
+
+    Used_CPU = psutil.cpu_percent(percpu=False)
+    CPU_freq = round(psutil.cpu_freq(percpu=False)[0])
+    CPU_temp = psutil.sensors_temperatures(fahrenheit=False)["coretemp"][0][1]
+
+    fan_list = psutil.sensors_fans()
+    FAN = "no fan"
+    for key, value in fan_list.items():
+        for i in value:
+            if i[1]>0:
+                FAN = i[1]
+
+    Sys_start_at = datetime.datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
+    
+    text = "<b>System info:</b>\n"
+    text = text + "<b>RAM:</b>\nUsed_RAM: {0}%. Used_SWAP: {1} %\n<b>CPU:</b>\nUsed_CPU: {2} %. CPU_freq: {3} MHz.\nCPU_Temp: {4} C. FAN: {5} RPM\n<b>HDD/NVME:</b>\n".format(Used_RAM,Used_SWAP,Used_CPU,CPU_freq,CPU_temp, FAN)
+    
+    disk_info_thread.join(5)
+    if not disk_info_thread.is_alive():
+        text += globals()["disk_inf"]["text"]
+
     text = text + "System start at: {0}".format(Sys_start_at) + "\n"
     #Кнопки
     if psutil.swap_memory()[0] > 0:
@@ -1093,9 +1249,14 @@ def dpb(param=""):
             if key.isdigit() and key == que["-z "]:
                 if value < 10:
                     num_but = value
-                else: num_but = 10
+                else: 
+                    num_but = 10
+                    all_but = value
         if "num_but" in locals():
             for i in range(num_but):
+                if "all_but" in locals():
+                    if i == num_but-1:
+                        i = all_but - 1
                 line = InlineKeyboardButton(i+1, callback_data='dpb("-n '+str(i+1)+'")')
                 if lvl1 < 5:            
                     keyboard[lvl2].append(line)
@@ -1602,11 +1763,11 @@ def choose_plot_size(free):
     if result_sorted:
         return result_sorted[0]
 
-def create_plot(temp, dest, temp2=None, size=32):
+def create_plot(temp, dest, temp2=None, size=32, threads=2):
     if not temp2:
         temp2 = ''
     patch = "python3 "+SCRIPT_DIR+"/plots_creator.py"
-    patch += " '-t "+temp+"' '-2 "+temp2+"' '-d "+dest+"' '-z "+str(size)+"'"
+    patch += " '-t "+temp+"' '-2 "+temp2+"' '-d "+dest+"' '-z "+str(size)+"' '-r "+str(threads)+"'"
     # patch = patch.split()
     print(patch)
     process = Popen(patch, shell=True)
@@ -1790,8 +1951,28 @@ def plot_manager():
                             if not dest:
                                 #Не нашел куда сеять
                                 continue
+                            #Выберем сколько ядер(потоков) использовать
+                            proc_thread = psutil.cpu_count()
+                            used_threads = 0
+                            weight_of_plots = {25:0.1, 32:1, 33:2, 34:4, 35:8}
+                            free_parallel_plots = que["NUM_PARALLEL_PLOTS"]
+                            for plot in all_plots:
+                                if plot.__class__.__name__ == "Plot":
+                                    if hasattr(plot, 'threads'): used_threads += int(plot.threads)  #потом можно удалить это условие
+                                    else: used_threads += 2
+                                    free_parallel_plots -= weight_of_plots[int(plot.size)]
+                            free_parallel_plots -= weight_of_plots[int(size)]
+
+                            print("proc_thread="+str(proc_thread))
+                            print("used_threads="+str(used_threads))
+                            print("free_parallel_plots="+str(free_parallel_plots))
+                            if free_parallel_plots == 0 and proc_thread - used_threads >= 2: threads = proc_thread - used_threads
+                            else:
+                                if proc_thread - used_threads - free_parallel_plots*2 > 0: threads = 4
+                                else: threads = 2
+                                        
                             # Создаем плот
-                            create_plot(temp, dest, temp2, size)
+                            create_plot(temp, dest, temp2, size, threads)
                             break
                         if temp and dest and temp2: break
                     last_time = datetime.datetime.now()
@@ -1915,8 +2096,29 @@ def plot_manager():
                         last_time = datetime.datetime.now()
                         time.sleep(5)
                         continue
+
+                    #Выберем сколько ядер(потоков) использовать
+                    #Выберем сколько ядер(потоков) использовать
+                    proc_thread = psutil.cpu_count()
+                    used_threads = 0
+                    weight_of_plots = {25:0.1, 32:1, 33:2, 34:4, 35:8}
+                    free_parallel_plots = que["NUM_PARALLEL_PLOTS"]
+                    for plot in all_plots:
+                        if plot.__class__.__name__ == "Plot":
+                            if hasattr(plot, 'threads'): used_threads += int(plot.threads)  #потом можно удалить это условие
+                            else: used_threads += 2
+                            free_parallel_plots -= weight_of_plots[int(plot.size)]
+                    free_parallel_plots -= weight_of_plots[int(size)]
+
+                    print("proc_thread="+str(proc_thread))
+                    print("used_threads="+str(used_threads))
+                    print("free_parallel_plots="+str(free_parallel_plots))
+                    if free_parallel_plots == 0 and proc_thread - used_threads >= 2: threads = proc_thread - used_threads
+                    else:
+                        if proc_thread - used_threads - free_parallel_plots*2 > 0: threads = 4
+                        else: threads = 2
                     # Создаем плот
-                    create_plot(temp, dest, temp2)
+                    create_plot(temp, dest, temp2, 32, threads)
                     
             time.sleep(5)
         else:
@@ -2178,7 +2380,7 @@ def check_plots_dirs(arg=None):
                     text += process.stdout
                     added_dirs_list.append(match[0])
         if text == "\n":
-            text = LANG["dirs_not_change"]
+            text += LANG["dirs_not_change"]
         retur = {"text":text}
         return(retur)
     else:
@@ -2415,7 +2617,7 @@ def plots_check_time(log):
             message_to_all("{0} {1} {2} {3}, {4}".format(LANG["decrease_plot_num"], globals()["plot_count"], LANG["on"], matches[0][5], LANG["check_discs"]), None)
         globals()["plot_count"] = matches[0][5]
 
-        if int(matches[0][3]) > 0:
+        if int(matches[0][3]) > 5:
             message_to_all("{0} {1}".format(LANG["proof_find"], matches[0][1]), None)
 
         if float(matches[0][4]) > 5:
@@ -2575,6 +2777,8 @@ if __name__ == '__main__':
         del_trash()
         message_to_all(LANG["start_bot"], None)
 
+    threading.Thread(target=cpu_use).start() #запускаем опрос загрузки cpu
+
     Process(target=plot_manager).start()
     que = {"AUTO_P":CONFIG_DICT["AUTO_P"], 
             "COMPUTING_TABLE": CONFIG_DICT["COMPUTING_TABLE"], 
@@ -2582,6 +2786,21 @@ if __name__ == '__main__':
             "SATA_AS_SSD": CONFIG_DICT["SATA_AS_SSD"],
             "USE_K33": CONFIG_DICT["USE_K33"]}
     Q.put(que)
+
+    if CONFIG_DICT["BINANCE_KEY"] and CONFIG_DICT["BINANCE_SECRET"]:
+        CONFIG_BINANCE = {
+            "apiKey": CONFIG_DICT["BINANCE_KEY"],
+            "secret": CONFIG_DICT["BINANCE_SECRET"],
+            "rateLimit": 500,
+            "enableRateLimit": True,
+        }
+    if CONFIG_DICT["OKEX_KEY"] and CONFIG_DICT["OKEX_SECRET"] and CONFIG_DICT["OKEX_PASS"]:
+        CONFIG_OKEX = {
+            "apiKey": CONFIG_DICT["OKEX_KEY"],
+            "secret": CONFIG_DICT["OKEX_SECRET"],
+            "password": CONFIG_DICT["OKEX_PASS"],
+            "enableRateLimit": True,
+        }
 
     threading.Thread(target=LogParser, args=(CONFIG_DICT["LOGPATCH"],)).start()  #читаем логи
     # Process(target=app.run(host='0.0.0.0')).start()     -Flask

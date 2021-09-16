@@ -13,9 +13,11 @@ def get_script_dir(follow_symlinks=True):
 def socket_client(host, port, request):
 
         mySocket = socket.socket()
+        mySocket.settimeout(10)
         try:
             mySocket.connect((host,port))
-        except(ConnectionRefusedError):
+            mySocket.settimeout(None)
+        except(ConnectionRefusedError, OSError):
             text = "Can't connect to "+str(host)+"\n"
             retur = {"text":text}
             return retur
@@ -85,7 +87,7 @@ class Plots:
         self.num_est = num_est
 
 class Plot:
-    def __init__(self, name, temp, dest, cmd, size, temp2=None):
+    def __init__(self, name, temp, dest, cmd, size, threads, temp2=None):
         self.name = name
         self.temp = temp
         self.temp2 = temp2        
@@ -93,6 +95,7 @@ class Plot:
         self.pid = os.getpid()
         self.cmd = cmd
         self.size = size
+        self.threads = threads
       
 def run(command):
     process = Popen(command, stdout=PIPE, shell=True, encoding="utf-8")
@@ -129,10 +132,13 @@ if __name__ == '__main__':
         if p[:3] == "-z ":
             size = p[3:]
             continue
+        if p[:3] == "-r ":
+            threads = p[3:]
+            continue
     command += " -k "+str(size)
     ram_sizes = {"25":512, "32":3390, "33":7400, "34":14800, "35":29600}
     command += " -b "+str(ram_sizes[str(size)])
-    command += " -r 2"
+    command += " -r "+threads
     try:
         os.mkdir(temp)
     except(OSError):
@@ -159,7 +165,7 @@ if __name__ == '__main__':
         if not filename:
             try:
                 filename = re.findall(r"ID: (.+)", log)[0]
-                p = Plot(filename, temp_0, dest_0, command, size, temp2_0)
+                p = Plot(filename, temp_0, dest_0, command, size, threads, temp2_0)
                 try:
                     with open(CONFIG_DICT["PLOTS_FILE"], "rb") as f:
                         all_plots = pickle.load(f)

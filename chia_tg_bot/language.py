@@ -65,7 +65,7 @@ russian = {"chia_stat":"Статус Chia","get_balance":"Узнать бала�
         "for_dell_dirs_type":"Для удаления директорий, в которых нет плотов и добавления директорий в которых я найду плоты, набери: /check_plots_dirs 1",
         "filter":"Фильтр:", "proofs":"Доказательств:", "ping":"Отклик:",
         "wrong_num":"Неправильный номер","no_data":"Нет данных","decrease_plot_num":"Уменьшилось количество плотов с ","on":"до",
-        "check_discs":"проверьте диски","proof_find:":"Найдено доказательство! в:","long_ping":"Долгий отклик от плота:",
+        "check_discs":"проверьте диски","proof_find":"Найдено доказательство! в:","long_ping":"Долгий отклик от плота:",
         "filter_pass":"сек. Фильтр прошли:","wallet_in":"Пополнение кошелька на:","sec":"сек.",
         "no_plotted":"Ничего не сеялось","not_find_plot_file":"Не нашел файла с плотами","clear_plot":"Очистка плота:",
         "files_in":"файлов в","cant_dell_files_from":"Не смог удалить файлы из","dell_log_in":"Удалил лог файл в",
@@ -74,10 +74,10 @@ russian = {"chia_stat":"Статус Chia","get_balance":"Узнать бала�
         "start_with_params":"Запуск c параметрами","start_without_params":"Запуск без параметров",
         "cancel_dell_plots":"Сейчас произойдет очистка недосозданных плотов, нажмите ctrl+с для отмены",
         "finished_move":"Закончил перемещение:", "plots_from":"плотов из", "time_done":"Время выполнения:",
-        "apply_lang":"Выбран русский язык","no_data_from_trex":"Нет ответа от T-Rex","gpu_pool_difficulty": "Сложность",
+        "apply_lang":"Выбран русский язык","no_data_from_trex":"Нет ответа от T-Rex","gpu_difficulty": "Сложность",
         "hashrate":"Хэшрейт","hashrate_day":"Хэшрейт за день","gpu_id":"GPU ID","gpu_name":"GPU NAME","gpu_fan_speed":"Fan","gpu_power":"Мощность",
-        "gpu_temperature":"Температура","gpu_invalid_count":"gpu_invalid_count","gpu_rejected_count":"gpu_rejected_count","gpu_sharerate":"gpu_sharerate",
-        "gpu_sharerate_average":"gpu_sharerate_average","gpu_solved_count":"gpu_solved_count"}
+        "gpu_temperature":"Температура","gpu_invalid_count":"gpu_invalid_count","binance_balances":"Балансы Binance", "okex_balances":"Балансы OKEX", "not_enought_mon":"Не достаточно",
+        "for_sell_req":"для продажи, требуется"}
 
 english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'day', 'dnya': 'days', 'dney': 'days', 
         'kolvo_popytok': 'The number of attempts exceeded, contact the administrator', 'need_auth': 'Authorization is required, enter the password:', 
@@ -126,7 +126,7 @@ english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'da
         'num_must_be_posit': 'The number must be positive', 'filter_stat': 'Filter notification status for', 'dirs_not_change': 'The list of directories did not name', 
         'for_dell_dirs_type': 'To remove directories in which there are no plots and add directories in which I will find plots, type: / check_plots_dirs 1', 
         'filter': 'Filter:', 'proofs': 'Evidence:', 'ping': 'Response:', 'wrong_num': 'Wrong number', 'no_data': 'No data', 
-        'decrease_plot_num': 'Decreased the number of plots with', 'check_discs': 'Check discs', 'proof_find:': 'Found proof!in:', 
+        'decrease_plot_num': 'Decreased the number of plots with', 'check_discs': 'Check discs', 'proof_find': 'Found proof!in:', 
         'long_ping': 'Long response from the plot:', 'filter_pass': 'sec.The filter passed:', 'wallet_in': 'Replenishment of the wallet on:', 'sec': 's.', 
         'no_plotted': 'Nothing was sown', 'not_find_plot_file': 'Did not find a file with plots', 'clear_plot': 'Cleaning the countertop:', 
         'cant_dell_files_from': 'I could not delete files from', 'dell_log_in': 'Removed log file in', 'start_text': 
@@ -134,7 +134,7 @@ english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'da
         'start_bot': 'Bot is running.Check, it may have been disconnected electricity', 'start_with_params': 'Launch with parameters', 
         'start_without_params': 'Running without parameters', 'cancel_dell_plots': 'There will now be cleaned by false plots, press Ctrl + C to cancel', 
         'finished_move': 'Finished moving:', 'plots_from': 'plots out', 'time_done': 'Lead time:',
-        "apply_lang":"English is selected","no_data_from_trex":"No response from T-Rex","gpu_pool_difficulty": "Difficulty",
+        "apply_lang":"English is selected","no_data_from_trex":"No response from T-Rex","gpu_difficulty": "Difficulty",
         "hashrate":"Hashrate","hashrate_day":"Hashrate day","gpu_id":"GPU ID","gpu_name":"GPU NAME","gpu_fan_speed":"Fan","gpu_power":"Power",
-        "gpu_temperature":"Temperature","gpu_invalid_count":"gpu_invalid_count","gpu_rejected_count":"gpu_rejected_count","gpu_sharerate":"gpu_sharerate",
-        "gpu_sharerate_average":"gpu_sharerate_average","gpu_solved_count":"gpu_solved_count"} 
+        "gpu_temperature":"Temperature","gpu_invalid_count":"gpu_invalid_count","binance_balances":"Binance balances", "okex_balances":"OKEX balances", "not_enought_mon":"Not enought",
+        "for_sell_req":"for sell, requried"} 

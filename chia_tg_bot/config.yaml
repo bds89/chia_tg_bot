@@ -104,3 +104,9 @@ SSD_DEVICES:
   USED_RAM%: 95
   GPU_temperature: 70
     #Бот пришлет уведоление всем в чате, при превышении данных порогов по температурам и использованию оперативной памяти в процентах
+T_REX: false
+BINANCE_KEY: 1111
+BINANCE_SECRET: 1111
+OKEX_KEY: 1111
+OKEX_SECRET: 1111
+OKEX_PASS: 1111
