@@ -362,7 +362,7 @@ def get_balance():
 
     binance_thread_get_bal.join(5)
     if "balances_binance" in globals() and "markets_binance" in globals() and not binance_thread_get_bal.is_alive():
-        text += LANG["binance_balances"]+"\n"
+        text += "<b>"+LANG["binance_balances"]+"</b>\n"
         keyboard = [[]]
         lvl1 = 0
         lvl2 = 0
@@ -395,7 +395,7 @@ def get_balance():
 
     okex_thread_get_bal.join(5)
     if "balances_okex" in globals() and "markets_okex" in globals() and not okex_thread_get_bal.is_alive():
-        text += LANG["okex_balances"]+"\n"
+        text += "<b>"+LANG["okex_balances"]+"</b>\n"
         for name, bal in globals()["balances_okex"]["free"].items():
             if bal > 0:
                 para = name+"/USDT"
@@ -1845,9 +1845,9 @@ def plot_manager():
                     plots_sizes_sorted = {}
                     for_sort = {}
                     for patch in plots_sizes.keys():
-                        if re.search(r"[Ss][Aa][Tt][Aa]", patch):
-                            for_sort[patch] = 1000
-                        else: for_sort[patch] = 0
+                        if re.search(r"[Ss][Aa][Tt][Aa]", patch): for_sort[patch] = 10000
+                        elif re.search(r"[Uu][Ss][Bb]", patch): for_sort[patch] = 0
+                        else: for_sort[patch] = 1000
                         for key in busy_disks:
                             if key == patch:
                                 for_sort[patch] += 10
@@ -2237,7 +2237,7 @@ def set_watchdog_interval(arg=None):
 def set_parallel_plots(arg=None):
     if arg and str(arg).isdigit():
         arg = int(round(float(arg)))
-        if arg < 1 or arg > 10:
+        if arg < 1 or arg > 30:
             text = LANG["paral_diap"]
             retur = {"text":text}
             return(retur)
@@ -2642,7 +2642,25 @@ def plots_check_time(log):
 
     matches = re.findall(r"Adding coin: {'amount': (\d+)", log)
     if matches:
-        message_to_all("{0} {1}".format(LANG["wallet_in"], int(matches[0])/1000000000000), None)
+        message_to_all("{0} {1}".format(LANG["wallet_in"], float(matches[0])/1000000000000), None)
+
+        cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
+        convert = {"M":1, "G":1*10**3, "T":1*10**6, "P":1*10**9, "E":1*10**12}
+
+        shared_names = ["Local Harvester", "Remote Harvester for IP: 212.75.234.213"]
+
+        try:
+            total_size_of_plots = re.findall(r"Total size of plots: (\d*.\d*)\s([MGTPE])iB", cli)
+            size_of_plots = re.findall(r"(.*Harvester.*)\n.*\d+ plots of size: (\d*.\d*)\s([MGTPE])iB", cli)
+
+            share_size = 0
+            for string in size_of_plots:
+                if string[0] in shared_names: share_size += float(string[1])*convert[string[2]]
+            bds_money = (share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]]))*(float(matches[0])/1000000000000)/3 + (1-(share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]])))*(float(matches[0])/1000000000000)
+            bds_money = round(bds_money, 6)
+            message_to_all("{0} {1}".format("Отправил на кошелек bds89: ", bds_money), None)
+        except:
+            pass
 
     matches = re.findall(
                 r"Looking up qualities on (.+) took: (\d.\d+)", log
