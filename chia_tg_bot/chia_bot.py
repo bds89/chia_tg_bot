@@ -681,6 +681,8 @@ def disk_info():
     
     text = ""
     for key in Disk_list_keys:
+        if re.search(r"[Uu][Ss][Bb]", key):
+            continue
         #Get temperature
         command = ('sudo hddtemp -n '+key).split()
         sudo_password = CONFIG_DICT["SUDO_PASS"]
@@ -879,6 +881,7 @@ def dell_plot(pid=None):
                                     tmp2 += 1
                         except(FileNotFoundError):
                             print("{0} {1}".format(LANG["cant_dell_files"], temp2))
+                    else: temp2 = ""
                     dest = plot.dest+"/plots"
                     try:
                         file_list = os.listdir(dest)
@@ -1973,6 +1976,7 @@ def plot_manager():
                                         
                             # Создаем плот
                             create_plot(temp, dest, temp2, size, threads)
+                            time.sleep(5)
                             break
                         if temp and dest and temp2: break
                     last_time = datetime.datetime.now()
@@ -2658,10 +2662,11 @@ def plots_check_time(log):
                 if string[0] in shared_names: share_size += float(string[1])*convert[string[2]]
             bds_money = (share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]]))*(float(matches[0])/1000000000000)/3 + (1-(share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]])))*(float(matches[0])/1000000000000)
             bds_money = round(bds_money, 6)
-            message_to_all("{0} {1}".format("Отправил на кошелек bds89: ", bds_money), None)
+            # if bds_money > 0.001:
+            #     cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR"])).read()
+            message_to_all("{0} {1}\n{2}".format("bds89: ", bds_money), None)
         except:
             pass
-
     matches = re.findall(
                 r"Looking up qualities on (.+) took: (\d.\d+)", log
             )
