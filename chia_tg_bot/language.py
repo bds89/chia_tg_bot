@@ -77,7 +77,7 @@ russian = {"chia_stat":"Статус Chia","get_balance":"Узнать бала�
         "apply_lang":"Выбран русский язык","no_data_from_trex":"Нет ответа от T-Rex","gpu_difficulty": "Сложность",
         "hashrate":"Хэшрейт","hashrate_day":"Хэшрейт за день","gpu_id":"GPU ID","gpu_name":"GPU NAME","gpu_fan_speed":"Fan","gpu_power":"Мощность",
         "gpu_temperature":"Температура","gpu_invalid_count":"gpu_invalid_count","binance_balances":"Балансы Binance", "okex_balances":"Балансы OKEX", "not_enought_mon":"Не достаточно",
-        "for_sell_req":"для продажи, требуется"}
+        "for_sell_req":"для продажи, требуется", "current_governor":"Текущий говернор", "set_governor":"Установил"}
 
 english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'day', 'dnya': 'days', 'dney': 'days', 
         'kolvo_popytok': 'The number of attempts exceeded, contact the administrator', 'need_auth': 'Authorization is required, enter the password:', 
@@ -137,4 +137,4 @@ english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'da
         "apply_lang":"English is selected","no_data_from_trex":"No response from T-Rex","gpu_difficulty": "Difficulty",
         "hashrate":"Hashrate","hashrate_day":"Hashrate day","gpu_id":"GPU ID","gpu_name":"GPU NAME","gpu_fan_speed":"Fan","gpu_power":"Power",
         "gpu_temperature":"Temperature","gpu_invalid_count":"gpu_invalid_count","binance_balances":"Binance balances", "okex_balances":"OKEX balances", "not_enought_mon":"Not enought",
-        "for_sell_req":"for sell, requried"} 
+        "for_sell_req":"for sell, requried", "current_governor":"Сurrent governor", "set_governor":"Set"} 

@@ -1,4 +1,4 @@
-import logging, re, os, json, yaml, datetime, psutil, time, sys, pickle, socket, threading, subprocess, urllib.request, ccxt, math
+import logging, re, os, json, yaml, datetime, psutil, time, sys, pickle, socket, threading, subprocess, urllib.request, ccxt, math, requests
 from subprocess import Popen, PIPE
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Bot, ReplyKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters, ConversationHandler
@@ -31,7 +31,8 @@ def socket_server(port):
         mySocket.listen(1)
         conn, addr = mySocket.accept()
         print ("Connection from: " + str(addr[0]))
-        data = pickle.loads(conn.recv(2048))
+        try: data = pickle.loads(conn.recv(2048))
+        except: data = "error_data"
         safety_addr = False
         node = "UNKNOWN"
         for key, value in CONFIG_DICT["NODE_LIST"].items():
@@ -46,10 +47,12 @@ def socket_server(port):
             q = data["q"]
             data = data["data"]
         print ("from connected  user: " + str(data))
-        data = eval(data)
-        data = pickle.dumps(data)
-        conn.sendall(data)
-
+        if data == "error_data":
+            conn.sendall({"text": "Not received data(server error)\n"})
+        else:
+            data = eval(data)
+            data = pickle.dumps(data)
+            conn.sendall(data)
     conn.close()
 
 #Харвестеры будут отправлять свои клавиатуры фулл ноде
@@ -125,17 +128,20 @@ def disk_list(min_size, min_free=None, full=None):
 
 def sys_crit_params():
     text = ""
+    sudo_password = CONFIG_DICT["SUDO_PASS"]
     #SSD temp
     for key, value in CONFIG_DICT["SSD_DEVICES"].items():
-        command = ('sudo smartctl -A -j '+value).split()
-        sudo_password = CONFIG_DICT["SUDO_PASS"]
+        command = ('smartctl -A -j '+value).split()
         p = Popen(['sudo', '--stdin'] + command, stdout=PIPE, stdin=PIPE, stderr=PIPE,
                 universal_newlines=True)
         cli = p.communicate(sudo_password + '\n')[0]
-        data = json.loads(cli)
-        final_dict = dict_open(data)
-        if final_dict["current"] >= CONFIG_DICT["CRITICAL_PARAMS"]["SSD_temperature"]:
-            text += "SSD temperature "+str(key)+" = "+str(final_dict["current"])+"℃\n"
+        try:
+            data = json.loads(cli)
+            if "temperature" in data and data["temperature"]["current"] >= CONFIG_DICT["CRITICAL_PARAMS"]["SSD_temperature"]:
+                text += "SSD temperature "+str(key)+" = "+str(data["temperature"]["current"])+"℃\n"
+        except(json.decoder.JSONDecodeError, IndexError, KeyError):
+            continue
+
     #Psutil params
     USED_RAM = psutil.virtual_memory()[2]
     if USED_RAM >= CONFIG_DICT["CRITICAL_PARAMS"]["USED_RAM%"]:
@@ -149,22 +155,20 @@ def sys_crit_params():
     if CPU_temp >= CONFIG_DICT["CRITICAL_PARAMS"]["CPU_temperature"]:
         text += "CPU_temperature = "+str(CPU_temp)+"℃\n"
     #Disk temp
-    Disk_list = disk_list(min_size=250*1000000000, full=False)
-    Disk_list_keys = list(Disk_list.keys())
-    Disk_list_keys.sort()
-    for key in Disk_list_keys:
-        command = ('sudo hddtemp -n '+key).split()
-        sudo_password = CONFIG_DICT["SUDO_PASS"]
-
-        p = Popen(['sudo', '--stdin'] + command, stdout=PIPE, stdin=PIPE, stderr=PIPE,
-                universal_newlines=True)
-        cli = p.communicate(sudo_password + '\n')[0]
-        if len(cli) > 4 or not cli:
-            pass
-        else: 
-            HDD_temp = int(cli[:-1])
-            if HDD_temp >= CONFIG_DICT["CRITICAL_PARAMS"]["HDD_temperature"]:
-                text += "HDD temperature "+key+" = "+str(HDD_temp)+"℃\n"
+    devices = disk_list(CONFIG_DICT["MIN_DISK_TOTAL"]*1000000000)
+    prev_disks = []
+    for dev_num, val in devices.items():
+        dev = re.findall(r"\D+", dev_num)[0]
+        if not dev in prev_disks:
+            p = subprocess.Popen(['sudo', '-S', 'smartctl', '-A', '-j', dev], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            cli = p.communicate(sudo_password + '\n')[0]
+            try:
+                data = json.loads(cli)
+                if "temperature" in data and data["temperature"]["current"] >= CONFIG_DICT["CRITICAL_PARAMS"]["HDD_temperature"]:
+                    text += "HDD temperature "+dev+" ("+val[4]+") = "+str(data["temperature"]["current"])+"℃\n"
+            except(json.decoder.JSONDecodeError, IndexError, KeyError):
+                continue
+            prev_disks.append(dev)
     #GPU temp
     if CONFIG_DICT["T_REX"]:
         try:
@@ -473,6 +477,10 @@ def binance_sell(name):
     retur = {"text":text}
     return(retur)
 
+def gpu_pause(p):
+    requests.post('http://127.0.0.1:4067/control', json={"pause": p})
+    return(get_gpu_info())
+
 def get_gpu_info():
     text = ""
     try:
@@ -491,7 +499,15 @@ def get_gpu_info():
                     LANG["gpu_fan_speed"], item["fan_speed"], LANG["gpu_power"], item["power"], LANG["gpu_temperature"], item["temperature"])
 
     text += "{0}: {1}\n".format(LANG["gpu_invalid_count"], data["invalid_count"])
-    retur = {"text":text}
+    if NVIDIA:
+        text += "Power limit: /pl (power limit Wt)\n"
+    #Кнопки
+    if data["paused"]:
+        keyboard = [[InlineKeyboardButton("GPU Pause OFF", callback_data='gpu_pause(False)')]]
+    else:
+        keyboard = [[InlineKeyboardButton("GPU Pause", callback_data='gpu_pause(True)')]]
+
+    retur = {"text":text, "keyboard":keyboard}
     return(retur)
 
 
@@ -673,32 +689,33 @@ def get_ssd_status():
         return(retur)
 
 def disk_info():
-    if "disk_inf" in globals() and time.time() - globals()["disk_inf"]["time"] < 15:
+    if "disk_inf" in globals() and time.time() - globals()["disk_inf"]["time"] < 30:
         return
-    Disk_list = disk_list(min_size=250*1000000000, full=True)
+    Disk_list = disk_list(CONFIG_DICT["MIN_DISK_TOTAL"]*1000000000, full=True)
     Disk_list_keys = list(Disk_list.keys())
     Disk_list_keys.sort()
-    
     text = ""
+    prev_disks = {}
+    sudo_password = CONFIG_DICT["SUDO_PASS"]
     for key in Disk_list_keys:
-        if re.search(r"[Uu][Ss][Bb]", key):
-            continue
-        #Get temperature
-        command = ('sudo hddtemp -n '+key).split()
-        sudo_password = CONFIG_DICT["SUDO_PASS"]
+        temperature = ""
+        dev = re.findall(r"\D+", key)[0]
+        if not dev in prev_disks:
+            p = subprocess.Popen(['sudo', '-S', 'smartctl', '-A', '-j', dev], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            cli = p.communicate(sudo_password + '\n')[0]
+            try:
+                data = json.loads(cli)
+                temperature = data["temperature"]["current"]       
+            except(json.decoder.JSONDecodeError, IndexError, KeyError):
+                pass
+            prev_disks[dev] = temperature
+        else: temperature = prev_disks[dev]
 
-        p = Popen(['sudo', '--stdin'] + command, stdout=PIPE, stdin=PIPE, stderr=PIPE,
-                universal_newlines=True)
-        cli = p.communicate(sudo_password + '\n')[0]
-        if len(cli) > 4 or not cli:
-            cli = ""
-        else: cli = "("+cli[:-1]+"℃)"
-        if Disk_list[key][2] > 330000000000:
-
-            text = text + "{0} ({1}){4}:\nTotal: {2} GB. Free: {3} GB\nUsed: {5} {6}%".format(key, Disk_list[key][4],round((Disk_list[key][0]/1000000000), 2),round((Disk_list[key][2]/1000000000), 2), cli, num_to_scale(Disk_list[key][3], 19), Disk_list[key][3]) + "\n"
+        if temperature and temperature > CONFIG_DICT["CRITICAL_PARAMS"]["HDD_temperature"] - 5:
+            text = text + "{0} ({1}) ({4}℃)❗:\nTotal: {2} GB. Free: {3} GB\nUsed: {5} {6}%".format(key, Disk_list[key][4],round((Disk_list[key][0]/1000000000), 2),round((Disk_list[key][2]/1000000000), 2), temperature, num_to_scale(Disk_list[key][3], 19), Disk_list[key][3]) + "\n"
         else:
-            text = text + "{0} ({1}){4}:\nTotal: {2} GB. Free: <u>{3}</u> GB ❗\nUsed: {5} {6}%".format(key, Disk_list[key][4], round((Disk_list[key][0]/1000000000), 2),round((Disk_list[key][2]/1000000000), 2), cli, num_to_scale(Disk_list[key][3], 19), Disk_list[key][3]) + "\n"
-
+            text = text + "{0} ({1})({4}℃):\nTotal: {2} GB. Free: {3} GB\nUsed: {5} {6}%".format(key, Disk_list[key][4], round((Disk_list[key][0]/1000000000), 2),round((Disk_list[key][2]/1000000000), 2), temperature, num_to_scale(Disk_list[key][3], 19), Disk_list[key][3]) + "\n"
+    
         globals()["disk_inf"] = {}
         globals()["disk_inf"]["text"] = text
         globals()["disk_inf"]["time"] = time.time()
@@ -747,6 +764,8 @@ def get_sys_info():
     line = InlineKeyboardButton("k32/k33", callback_data='plplan()')
     keyboard[0].append(line)
     line = InlineKeyboardButton("DELL", callback_data='dpb()')
+    keyboard[0].append(line)
+    line = InlineKeyboardButton("Governor", callback_data='set_governor()')
     keyboard[0].append(line)
     retur = {"text":text, "keyboard":keyboard}
     if(request):
@@ -1630,7 +1649,42 @@ def plot_config(sata_as_ssd=None, use_k33=None):
     globals()['Q'].put(que)
     retur = {"text":text}
     return(retur)
-        
+
+def set_governor(gov=None):
+    if not gov:
+        with open('/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors') as f:
+            governors = re.findall(r'\w+', f.read())
+        with open('/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor') as f:
+            governor = re.findall(r'\w+', f.read())
+        text = LANG["current_governor"] +': '+governor[0]+'\n' 
+        lvl1 = 0
+        lvl2 = 0
+        keyboard = [[]]
+        for g in governors:
+            if g == governor[0]: continue
+            line = InlineKeyboardButton(g, callback_data='set_governor("'+g+'")')
+            if lvl1 < 3:            
+                keyboard[lvl2].append(line)
+                lvl1 += 1
+            else:
+                lvl2 += 1
+                lvl1 = 0
+                keyboard.append([])
+                keyboard[lvl2].append(line)
+        retur = {"text":text, "keyboard":keyboard}
+        return(retur)
+
+    process = subprocess.run(['ls /sys/devices/system/cpu/'], check=True, shell=True, stdout=subprocess.PIPE, universal_newlines=True)
+    output = process.stdout
+    cpus = re.findall(r"cpu\d+", output)
+    sudo_password = CONFIG_DICT["SUDO_PASS"]
+    for cpu in cpus:
+        p = subprocess.Popen(['sudo', '-S', 'sh', '-c', 'echo '+gov+' > /sys/devices/system/cpu/'+cpu+'/cpufreq/scaling_governor'], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        cli = p.communicate(sudo_password + '\n')[0]
+    text = LANG["set_governor"] +': '+gov+'\n' 
+    retur = {"text":text}
+    return(retur)
+
 def button(update, context):
     query = update.callback_query
     if not "farm" in context.user_data:
@@ -1976,11 +2030,11 @@ def plot_manager():
                                         
                             # Создаем плот
                             create_plot(temp, dest, temp2, size, threads)
-                            time.sleep(5)
                             break
-                        if temp and dest and temp2: break
-                    last_time = datetime.datetime.now()
-                    time.sleep(5)
+                        if temp and dest: break
+                    if temp and dest: pass
+                    else: last_time = datetime.datetime.now()
+                    time.sleep(10)
                     continue
 
 #Если сеем только к32, старый код
@@ -2100,8 +2154,6 @@ def plot_manager():
                         last_time = datetime.datetime.now()
                         time.sleep(5)
                         continue
-
-                    #Выберем сколько ядер(потоков) использовать
                     #Выберем сколько ядер(потоков) использовать
                     proc_thread = psutil.cpu_count()
                     used_threads = 0
@@ -2161,61 +2213,111 @@ def not_sleep(it):
                                 f.close()
                 i += 1
         time.sleep(60)
+def smartdog():  #Отслеживаем изменение SMART дисков
+    famous__smart_attr = ["Raw_Read_Error_Rate",
+                        "Reallocated_Sector_Ct",
+                        "Seek_Error_Rate",
+                        "Spin_Retry_Count",
+                        "Helium_Condition_Lower",
+                        "Helium_Condition_Upper",
+                        "G-Sense_Error_Rate",
+                        "Reallocated_Event_Count",
+                        "Current_Pending_Sector",
+                        "Offline_Uncorrectable",
+                        "UDMA_CRC_Error_Count"]
+    sudo_password = CONFIG_DICT["SUDO_PASS"]
+    disk_smart_dict ={}
+    while (True):
+        now = datetime.datetime.now()
+        if now.hour == 0 or now.hour == 12 or not disk_smart_dict:
+            devices = disk_list(CONFIG_DICT["MIN_DISK_TOTAL"]*1000000000)
+            prev_disks = []
+            for dev_num, val in devices.items():
+                dev = re.findall(r"\D+", dev_num)[0]
+                if not dev in prev_disks:
+                    prev_disks.append(dev)
+                    p = subprocess.Popen(['sudo', '-S', 'smartctl', '-A', '-j', dev], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                    cli = p.communicate(sudo_password + '\n')[0]
+                    try:
+                        data = json.loads(cli)
+                    except(json.decoder.JSONDecodeError):
+                        continue
+                    if not dev in disk_smart_dict:
+                        disk_smart_dict[dev] = {}
+                    if "ata_smart_attributes" in data:
+                        for attr in data["ata_smart_attributes"]["table"]:
+                            if attr["name"] in famous__smart_attr:
+                                if attr["name"] in disk_smart_dict[dev]:
+                                    if disk_smart_dict[dev][attr["name"]]["value"] != attr["value"]:
+                                        text = "Диск {0} ({1}), изменилось относительное значение {2} с {3} на {4}. Порог: {5}".format(dev, val[4], attr["name"], disk_smart_dict[dev][attr["name"]]["value"], attr["value"], attr["thresh"])
+                                        message_to_all(text, True)
+                                        disk_smart_dict[dev][attr["name"]]["value"] = attr["value"]
+                                    if disk_smart_dict[dev][attr["name"]]["raw"] < 100 and disk_smart_dict[dev][attr["name"]]["raw"] != attr["raw"]["value"]:
+                                        text = "Диск {0} ({1}), изменилось абсолютное значение {2} с {3} на {4}".format(dev, val[4], attr["name"], disk_smart_dict[dev][attr["name"]]["raw"], attr["raw"]["value"])
+                                        message_to_all(text, True)
+                                        disk_smart_dict[dev][attr["name"]]["raw"] = attr["raw"]["value"]
+                                else: disk_smart_dict[dev][attr["name"]] = {"value":attr["value"], "raw":attr["raw"]["value"]}
+                    else: 
+                        print("Диск {0} havn't smart data".format(dev))
+            time.sleep(3600)
+
+        time.sleep(1700)
 
 def watchdog():
     print("Watchdog started")
     while True:
         if CONFIG_DICT["WD_INTERVAL"] == 0: time.sleep(5)
         else:
-            time.sleep(CONFIG_DICT["WD_INTERVAL"])
-            cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet show').read()
-            cli = cli + os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
-            stat = {}
-            try:
-                stat["Sync status: "] = re.findall(r"Sync status: (.+)", cli)[0]
-                stat["Farming status: "] = re.findall(r"Farming status: (.+)", cli)[0]
-                stat["Plot count for all harvesters: "] = int(re.findall(r"Plot count for all harvesters: (\d+)", cli)[0])
-                if not plot_count_all_harvesters or plot_count_all_harvesters <= stat["Plot count for all harvesters: "]:
-                    globals()["plot_count_all_harvesters"] = stat["Plot count for all harvesters: "]
-            except(IndexError):
-                stat["Sync status: "] = "None"
-                stat["Farming status: "] = "None"
-                stat["Plot count for all harvesters: "] = 0
-            if stat["Sync status: "] != "Synced" or stat["Farming status: "] != "Farming" or stat["Plot count for all harvesters: "] < (plot_count_all_harvesters - 2):
-                try:
-                        f = open(CONFIG_DICT["WATCHDOG_LOG"])
-                        log = []
-                        for line in f:
-                            log.append(line)
-                except(FileNotFoundError):
-                        f = open(CONFIG_DICT["WATCHDOG_LOG"], 'w')
-                        log = []
-                dt = datetime.datetime.now()
-                if log:
-                    f = open(CONFIG_DICT["WATCHDOG_LOG"], 'a')
-                    try:
-                        last_log = log[len(log)-1]
-                        last_time = re.findall(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})    Sync status:", last_log)[0]
-                        last_time_timestam = datetime.datetime.strptime(last_time, "%Y-%m-%d %H:%M:%S")
-                    except(IndexError):
-                        last_time_timestam = datetime.datetime.fromtimestamp(time.mktime(dt.timetuple())) - datetime.timedelta(hours=0, minutes=61)
-                else:
-                    last_time_timestam = datetime.datetime.fromtimestamp(time.mktime(dt.timetuple())) - datetime.timedelta(hours=0, minutes=61)
-                    f = open(CONFIG_DICT["WATCHDOG_LOG"], 'a')
-                timestamp_now = datetime.datetime.fromtimestamp(time.mktime(dt.timetuple()))
-                if timestamp_now - last_time_timestam > datetime.timedelta(hours=0, minutes=60):
-                    text = "Watchdog alert❗\n"
-                    for key, value in stat.items():
-                        text += "{0} {1}".format(key,value) + "\n"
-                    message_to_all(text, None)
-                log = "{0}    Sync status:{1}    Farming status:{2}    Plot count:{3} ({4} {5})\n".format(str(timestamp_now), stat["Sync status: "], stat["Farming status: "], 
-                                                                                                        stat["Plot count for all harvesters: "], LANG["was"], plot_count_all_harvesters)
-                f.write(log)
-                f.close()
-                globals()["plot_count_all_harvesters"] = stat["Plot count for all harvesters: "]
             sys_params = sys_crit_params()
             if sys_params:
                 message_to_all("Watchdog alert❗\n"+sys_params, None)
+            if CONFIG_DICT["FULL_NODE"]:
+                cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet show').read()
+                cli = cli + os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
+                stat = {}
+                try:
+                    stat["Sync status: "] = re.findall(r"Sync status: (.+)", cli)[0]
+                    stat["Farming status: "] = re.findall(r"Farming status: (.+)", cli)[0]
+                    stat["Plot count for all harvesters: "] = int(re.findall(r"Plot count for all harvesters: (\d+)", cli)[0])
+                    if not plot_count_all_harvesters or plot_count_all_harvesters <= stat["Plot count for all harvesters: "]:
+                        globals()["plot_count_all_harvesters"] = stat["Plot count for all harvesters: "]
+                except(IndexError):
+                    stat["Sync status: "] = "None"
+                    stat["Farming status: "] = "None"
+                    stat["Plot count for all harvesters: "] = 0
+                if stat["Sync status: "] != "Synced" or stat["Farming status: "] != "Farming" or stat["Plot count for all harvesters: "] < (plot_count_all_harvesters - 2):
+                    try:
+                            f = open(CONFIG_DICT["WATCHDOG_LOG"])
+                            log = []
+                            for line in f:
+                                log.append(line)
+                    except(FileNotFoundError):
+                            f = open(CONFIG_DICT["WATCHDOG_LOG"], 'w')
+                            log = []
+                    dt = datetime.datetime.now()
+                    if log:
+                        f = open(CONFIG_DICT["WATCHDOG_LOG"], 'a')
+                        try:
+                            last_log = log[len(log)-1]
+                            last_time = re.findall(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})    Sync status:", last_log)[0]
+                            last_time_timestam = datetime.datetime.strptime(last_time, "%Y-%m-%d %H:%M:%S")
+                        except(IndexError):
+                            last_time_timestam = datetime.datetime.fromtimestamp(time.mktime(dt.timetuple())) - datetime.timedelta(hours=0, minutes=61)
+                    else:
+                        last_time_timestam = datetime.datetime.fromtimestamp(time.mktime(dt.timetuple())) - datetime.timedelta(hours=0, minutes=61)
+                        f = open(CONFIG_DICT["WATCHDOG_LOG"], 'a')
+                    timestamp_now = datetime.datetime.fromtimestamp(time.mktime(dt.timetuple()))
+                    if timestamp_now - last_time_timestam > datetime.timedelta(hours=0, minutes=60):
+                        text = "Watchdog alert❗\n"
+                        for key, value in stat.items():
+                            text += "{0} {1}".format(key,value) + "\n"
+                        message_to_all(text, None)
+                    log = "{0}    Sync status:{1}    Farming status:{2}    Plot count:{3} ({4} {5})\n".format(str(timestamp_now), stat["Sync status: "], stat["Farming status: "], 
+                                                                                                            stat["Plot count for all harvesters: "], LANG["was"], plot_count_all_harvesters)
+                    f.write(log)
+                    f.close()
+                    globals()["plot_count_all_harvesters"] = stat["Plot count for all harvesters: "]
+            time.sleep(CONFIG_DICT["WD_INTERVAL"])
         
 def set_watchdog_interval(arg=None):
     if arg and str(arg).isdigit():
@@ -2369,7 +2471,7 @@ def check_plots_dirs(arg=None):
         for dir, have_plot in plot_dirs_dict.items():
             if not have_plot:
                 process = subprocess.run(['/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia plots remove -d "'+dir+'"'], check=True, shell=True, stdout=subprocess.PIPE, universal_newlines=True)
-                text += process.stdout
+                text += "removed: "+dir+"\n"
                 plot_dirs.remove(dir)
     #добавим директории в которых найдем плоты
         text += "\n"
@@ -2381,7 +2483,7 @@ def check_plots_dirs(arg=None):
                 match = re.findall(r"^(/.+)/plot-k\d{2}.+plot$", key)
                 if match and not match[0] in plot_dirs and not match[0] in added_dirs_list:
                     process = subprocess.run(['/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia plots add -d "'+match[0]+'"'], check=True, shell=True, stdout=subprocess.PIPE, universal_newlines=True)
-                    text += process.stdout
+                    text += "added: "+match[0]+"\n"
                     added_dirs_list.append(match[0])
         if text == "\n":
             text += LANG["dirs_not_change"]
@@ -2425,6 +2527,31 @@ def show_log(arg=None):
         retur = {"text":text}
         return(retur)
 
+def power_limit(arg=None):
+    if NVIDIA:
+        if arg:
+            try:
+                arg = int(arg)
+            except(ValueError):
+                text = LANG["type"]+'/pl <int> (power limit)'
+                retur = {"text":text}
+                return(retur)
+            if arg < 0:
+                text = LANG["num_must_be_posit"]
+                retur = {"text":text}
+                return(retur)
+            p = subprocess.Popen(['sudo', '-S', 'nvidia-smi', '-pl', str(arg)], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            text = p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
+            retur = {"text":text}
+            return(retur)
+        
+        else:
+            text = LANG["current"]+str(NVIDIA)+'\n'+LANG["type"]+'/pl <int> (power limit)'
+            retur = {"text":text}
+            return(retur)
+    text = "Please install Nvidia Drivers"
+    retur = {"text":text}
+    return(retur)
 def reply_message(update, text, reply_markup=None):
     if update['message']['chat']['id'] in MESSAGES and MESSAGES[update['message']['chat']['id']]:
         globals()["MESSAGES"][update['message']['chat']['id']].edit_reply_markup(reply_markup=None)
@@ -2515,7 +2642,8 @@ def my_command_handler(update: Update, context: CallbackContext):
                         '/filter':'set_filter(arg="'+arg+'", chat_id='+chat_id+')',
                         '/log':'show_log("'+arg+'")',
                         '/set_plot_config':'set_plot_config("'+arg+'")',
-                        '/check_plots_dirs':'check_plots_dirs("'+arg+'")'}
+                        '/check_plots_dirs':'check_plots_dirs("'+arg+'")',
+                        '/pl':'power_limit("'+arg+'")'}
         command_dict.update(command_dict_without_arg)
         print(update.message.chat.first_name+"---->"+command+" "+arg)
         if int(context.user_data["farm"]) == 1:
@@ -2576,6 +2704,7 @@ def main() -> None:
     updater.dispatcher.add_handler(CommandHandler("log", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("set_plot_config", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("check_plots_dirs", my_command_handler, USERS_FILTER))
+    updater.dispatcher.add_handler(CommandHandler("pl", my_command_handler, USERS_FILTER))
 
     # Start the Bot
     updater.start_polling()
@@ -2653,20 +2782,27 @@ def plots_check_time(log):
 
         shared_names = ["Local Harvester", "Remote Harvester for IP: 212.75.234.213"]
 
-        try:
-            total_size_of_plots = re.findall(r"Total size of plots: (\d*.\d*)\s([MGTPE])iB", cli)
-            size_of_plots = re.findall(r"(.*Harvester.*)\n.*\d+ plots of size: (\d*.\d*)\s([MGTPE])iB", cli)
+        if "XCH_ADDR_BDS89" in CONFIG_DICT and "XCH_ADDR_OTHER" in CONFIG_DICT:
+            try:
+                total_size_of_plots = re.findall(r"Total size of plots: (\d*.\d*)\s([MGTPE])iB", cli)
+                size_of_plots = re.findall(r"(.*Harvester.*)\n.*\d+ plots of size: (\d*.\d*)\s([MGTPE])iB", cli)
 
-            share_size = 0
-            for string in size_of_plots:
-                if string[0] in shared_names: share_size += float(string[1])*convert[string[2]]
-            bds_money = (share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]]))*(float(matches[0])/1000000000000)/3 + (1-(share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]])))*(float(matches[0])/1000000000000)
-            bds_money = round(bds_money, 6)
-            # if bds_money > 0.001:
-            #     cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR"])).read()
-            message_to_all("{0} {1}\n{2}".format("bds89: ", bds_money), None)
-        except:
-            pass
+                share_size = 0
+                for string in size_of_plots:
+                    if string[0] in shared_names: share_size += float(string[1])*convert[string[2]]
+                bds_money = (share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]]))*(float(matches[0])/1000000000000)/3 + (1-(share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]])))*(float(matches[0])/1000000000000)
+                bds_money = round(bds_money, 6)
+                cli1 = "empty transaction"
+                cli2 = "empty transaction"
+                other_money = (float(matches[0])/1000000000000) - bds_money - 0.001
+                if bds_money > 0.01:
+                    cli1 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_BDS89"])).read()
+                if other_money > 0.01:
+                    cli2 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
+
+                message_to_all("{0} {1}\n{2}\n{3} {4}\n{5}".format("bds89: ", bds_money, cli1, "other: ", other_money, cli2), None)
+            except:
+                pass
     matches = re.findall(
                 r"Looking up qualities on (.+) took: (\d.\d+)", log
             )
@@ -2798,7 +2934,7 @@ if __name__ == '__main__':
         if CONFIG_DICT["HARVESTER_MAC"]:
             send_magic_packet(*CONFIG_DICT["HARVESTER_MAC"])
         del_trash()
-        message_to_all(LANG["start_bot"], None)
+        message_to_all(LANG["start_bot"], True)
 
     threading.Thread(target=cpu_use).start() #запускаем опрос загрузки cpu
 
@@ -2828,9 +2964,16 @@ if __name__ == '__main__':
     threading.Thread(target=LogParser, args=(CONFIG_DICT["LOGPATCH"],)).start()  #читаем логи
     # Process(target=app.run(host='0.0.0.0')).start()     -Flask
     threading.Thread(target=not_sleep, args=(1,)).start()  #not_sleep
+    threading.Thread(target=watchdog).start()  #WatchDog
+    threading.Thread(target=smartdog).start()  #SmartDog
+    # проверим есть ли драйвера nvidia
+    p = subprocess.Popen(['sudo', '-S', 'nvidia-smi', '-pl', '151'], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    cli = p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
+    if cli:
+        NVIDIA = 151
+    else: NVIDIA = None
     #Для фермы1
     if CONFIG_DICT["FULL_NODE"]:
-        threading.Thread(target=watchdog).start()  #WatchDog
         #добавим пользователей из конфига в разрешенные
         USERS_FILTER = Filters.user()
         USERS_FILTER.add_user_ids(list(CONFIG_DICT["CHAT_IDS"]))

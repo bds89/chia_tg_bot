@@ -15,7 +15,6 @@ setup(
         'psutil', 
         'python-telegram-bot==13.7', 
         'wakeonlan==2.0.1', 
-        'hddtemp',
         'ccxt==1.56.41'
 ]
 )

@@ -192,17 +192,16 @@ if __name__ == '__main__':
             else:
                 f.write(log+"\n")
         f.close()
-        try:
+        if re.search(r"Total time = (\w+.\w+)", log):
             total_time = re.findall(r"Total time = (\w+.\w+)", log)[0]
             print("Plot created from {0} to {1} in {2} s.".format(temp, dest, str(total_time)))
-            with open(CONFIG_DICT["PLOTS_FILE"], "rb") as f:
-                all_plots = pickle.load(f)
-            for plot in all_plots:
-                if plot.__class__.__name__ == "Plot":
-                    if plot.name == filename:
-                        all_plots.remove(plot)
-                        break
-            with open(CONFIG_DICT["PLOTS_FILE"],"wb") as f:
-                pickle.dump(all_plots, f)
-        except(IndexError):
-            pass
+    #Удалим запись о плоте
+    with open(CONFIG_DICT["PLOTS_FILE"], "rb") as f:
+        all_plots = pickle.load(f)
+    for plot in all_plots:
+        if plot.__class__.__name__ == "Plot":
+            if plot.name == filename:
+                all_plots.remove(plot)
+                break
+    with open(CONFIG_DICT["PLOTS_FILE"],"wb") as f:
+        pickle.dump(all_plots, f)
