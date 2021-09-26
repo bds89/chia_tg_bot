@@ -18,6 +18,7 @@ russian = {"chia_stat":"Статус Chia","get_balance":"Узнать бала�
         Для включения/отключения отображения бесшумных уведомлений наберите /notify <on/off>\n\
         Для просмотра журнала watchdog наберите /log <float> (часов)\n\
         Для удаления директорий из чиа в которых нет плотов и добавления директорий в которых найдены плоты наберите /check_plots_dirs 1\n\
+        Для перезапуска харвестера наберите /harvester_restart 1\n\
         Для наблюдением за количеством плотов прошедших фильтр наберите /filter <int> (>= количества плотов прошедших фильтр)\n\n\
         Не все плоты могут быть отменены. При засеве разных плотов с одинаковыми параметрами, бот не сможет найти и закрыть определенный процесс chia\
         Для корректной работы кнопок при создании плота, из-за ограничений Telegram, абсолютный путь к корню ваших дисков не должен превышать 52 байта UTF-8(52 символа для латинского алфавита)",
@@ -77,7 +78,8 @@ russian = {"chia_stat":"Статус Chia","get_balance":"Узнать бала�
         "apply_lang":"Выбран русский язык","no_data_from_trex":"Нет ответа от T-Rex","gpu_difficulty": "Сложность",
         "hashrate":"Хэшрейт","hashrate_day":"Хэшрейт за день","gpu_id":"GPU ID","gpu_name":"GPU NAME","gpu_fan_speed":"Fan","gpu_power":"Мощность",
         "gpu_temperature":"Температура","gpu_invalid_count":"gpu_invalid_count","binance_balances":"Балансы Binance", "okex_balances":"Балансы OKEX", "not_enought_mon":"Не достаточно",
-        "for_sell_req":"для продажи, требуется", "current_governor":"Текущий говернор", "set_governor":"Установил"}
+        "for_sell_req":"для продажи, требуется", "current_governor":"Текущий говернор", "set_governor":"Установил", 
+        "for_restart_harvester": "Для перезагрузки харвестера наберите /harvester_restart 1"}
 
 english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'day', 'dnya': 'days', 'dney': 'days', 
         'kolvo_popytok': 'The number of attempts exceeded, contact the administrator', 'need_auth': 'Authorization is required, enter the password:', 
@@ -93,6 +95,7 @@ english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'da
         To enable / disable the display of silent notifications, dial / Notify <ON / OFF>\n\
         To view the WatchDog log, dial / log <Float> (hours)\n\
         To remove directories from Chia in which there are no plots and add directories in which the plots are found dial / check_plots_dirs 1\n\
+        To restart harvester, type /harvester_restart 1\n\
         For observation of the number of plots of the past filter, dial / filter <int> (> = quantities of the plots of the past filter)\n\n\
         Not all plots can be canceled. When sowing different plots with the same parameters, the bot will not be able to find and close a specific CHIA process for correct operation of the buttons when creating a fleet, due to the restrictions of Telegram, the absolute path to the root of your disks should not exceed 52 bytes UTF-8 (52 characters for Latin alphabet)', 
         'time_to_win': 'Estimated winning time:', 'now_plots': 'Current plots:', 'avg_time': 'Average time on GIB:', 'left_to_plot': 'It remains to done plotting:', 
@@ -137,4 +140,5 @@ english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'da
         "apply_lang":"English is selected","no_data_from_trex":"No response from T-Rex","gpu_difficulty": "Difficulty",
         "hashrate":"Hashrate","hashrate_day":"Hashrate day","gpu_id":"GPU ID","gpu_name":"GPU NAME","gpu_fan_speed":"Fan","gpu_power":"Power",
         "gpu_temperature":"Temperature","gpu_invalid_count":"gpu_invalid_count","binance_balances":"Binance balances", "okex_balances":"OKEX balances", "not_enought_mon":"Not enought",
-        "for_sell_req":"for sell, requried", "current_governor":"Сurrent governor", "set_governor":"Set"} 
+        "for_sell_req":"for sell, requried", "current_governor":"Сurrent governor", "set_governor":"Set",
+        "for_restart_harvester": "To restart harvester, type /harvester_restart 1"} 

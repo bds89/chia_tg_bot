@@ -23,6 +23,13 @@ def socket_server(port):
     print("socket server started at port "+str(port))
     host = "0.0.0.0"
     port = int(port)
+    
+    while True:
+        p = subprocess.Popen(['sudo', '-S', 'lsof', '-i', ':'+str(port)], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        text = p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
+        if not text: break
+        time.sleep(5)
+
     mySocket = socket.socket()
     mySocket.bind((host,port))
 
@@ -1983,7 +1990,7 @@ def plot_manager():
                                     #Сделаем рейтинг ССД
                                     for plot in all_plots:
                                         if plot.__class__.__name__ == "Plot":
-                                            if plot.temp == patch:
+                                            if plot.temp == patch and patch in ssd_chart:
                                                 ssd_chart[patch] += 1
                                 sorted_tuples = sorted(ssd_chart.items(), key=lambda item: item[1])
                                 sorted_ssd_chart = {k: v for k, v in sorted_tuples}
@@ -2552,6 +2559,19 @@ def power_limit(arg=None):
     text = "Please install Nvidia Drivers"
     retur = {"text":text}
     return(retur)
+
+def harvester_restart(arg=None):
+    if arg and int(arg)==1:
+        command = '/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia start harvester -r'.split()
+        p = subprocess.Popen(['sudo', '-S']+command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        text = p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
+        retur = {"text":text}
+        return(retur)
+    else:
+        text = LANG["for_restart_harvester"]
+        retur = {"text":text}
+        return(retur)
+
 def reply_message(update, text, reply_markup=None):
     if update['message']['chat']['id'] in MESSAGES and MESSAGES[update['message']['chat']['id']]:
         globals()["MESSAGES"][update['message']['chat']['id']].edit_reply_markup(reply_markup=None)
@@ -2643,7 +2663,8 @@ def my_command_handler(update: Update, context: CallbackContext):
                         '/log':'show_log("'+arg+'")',
                         '/set_plot_config':'set_plot_config("'+arg+'")',
                         '/check_plots_dirs':'check_plots_dirs("'+arg+'")',
-                        '/pl':'power_limit("'+arg+'")'}
+                        '/pl':'power_limit("'+arg+'")',
+                        '/harvester_restart':'harvester_restart("'+arg+'")'}
         command_dict.update(command_dict_without_arg)
         print(update.message.chat.first_name+"---->"+command+" "+arg)
         if int(context.user_data["farm"]) == 1:
@@ -2705,6 +2726,7 @@ def main() -> None:
     updater.dispatcher.add_handler(CommandHandler("set_plot_config", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("check_plots_dirs", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("pl", my_command_handler, USERS_FILTER))
+    updater.dispatcher.add_handler(CommandHandler("harvester_restart", my_command_handler, USERS_FILTER))
 
     # Start the Bot
     updater.start_polling()
@@ -2772,37 +2794,39 @@ def plots_check_time(log):
             f.write(log)
             f.close()
 
+    if "send_coin_at" in globals() and datetime.datetime.now() - globals()["send_coin_at"] < datetime.timedelta(seconds=100): pass   
+    else:
+        matches = re.findall(r"Adding coin: {'amount': (\d+)", log)
+        if matches:
+            message_to_all("{0} {1}".format(LANG["wallet_in"], float(matches[0])/1000000000000), None)
 
-    matches = re.findall(r"Adding coin: {'amount': (\d+)", log)
-    if matches:
-        message_to_all("{0} {1}".format(LANG["wallet_in"], float(matches[0])/1000000000000), None)
+            cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
+            convert = {"M":1, "G":1*10**3, "T":1*10**6, "P":1*10**9, "E":1*10**12}
 
-        cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
-        convert = {"M":1, "G":1*10**3, "T":1*10**6, "P":1*10**9, "E":1*10**12}
+            shared_names = ["Local Harvester", "Remote Harvester for IP: 212.75.234.213"]
 
-        shared_names = ["Local Harvester", "Remote Harvester for IP: 212.75.234.213"]
+            if "XCH_ADDR_BDS89" in CONFIG_DICT:
+                try:
+                    total_size_of_plots = re.findall(r"Total size of plots: (\d*.\d*)\s([MGTPE])iB", cli)
+                    size_of_plots = re.findall(r"(.*Harvester.*)\n.*\d+ plots of size: (\d*.\d*)\s([MGTPE])iB", cli)
 
-        if "XCH_ADDR_BDS89" in CONFIG_DICT and "XCH_ADDR_OTHER" in CONFIG_DICT:
-            try:
-                total_size_of_plots = re.findall(r"Total size of plots: (\d*.\d*)\s([MGTPE])iB", cli)
-                size_of_plots = re.findall(r"(.*Harvester.*)\n.*\d+ plots of size: (\d*.\d*)\s([MGTPE])iB", cli)
+                    share_size = 0
+                    for string in size_of_plots:
+                        if string[0] in shared_names: share_size += float(string[1])*convert[string[2]]
+                    bds_money = (share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]]))*(float(matches[0])/1000000000000)/3 + (1-(share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]])))*(float(matches[0])/1000000000000)
+                    bds_money = round(bds_money, 6)
+                    cli1 = "no transaction"
+                    cli2 = "no transaction"
+                    other_money = round(((float(matches[0])/1000000000000) - bds_money - 0.001), 6)
+                    if bds_money > 0.01:
+                        cli1 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_BDS89"])).read()
+                    if "XCH_ADDR_OTHER" in CONFIG_DICT and other_money > 0.01:
+                        cli2 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
 
-                share_size = 0
-                for string in size_of_plots:
-                    if string[0] in shared_names: share_size += float(string[1])*convert[string[2]]
-                bds_money = (share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]]))*(float(matches[0])/1000000000000)/3 + (1-(share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]])))*(float(matches[0])/1000000000000)
-                bds_money = round(bds_money, 6)
-                cli1 = "empty transaction"
-                cli2 = "empty transaction"
-                other_money = (float(matches[0])/1000000000000) - bds_money - 0.001
-                if bds_money > 0.01:
-                    cli1 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_BDS89"])).read()
-                if other_money > 0.01:
-                    cli2 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
-
-                message_to_all("{0} {1}\n{2}\n{3} {4}\n{5}".format("bds89: ", bds_money, cli1, "other: ", other_money, cli2), None)
-            except:
-                pass
+                    message_to_all("{0} {1}\n{2}\n{3} {4}\n{5}".format("bds89: ", bds_money, cli1, "other: ", other_money, cli2), None)
+                    globals()["send_coin_at"] = last_time = datetime.datetime.now()
+                except:
+                    pass
     matches = re.findall(
                 r"Looking up qualities on (.+) took: (\d.\d+)", log
             )
@@ -2933,6 +2957,14 @@ if __name__ == '__main__':
             time.sleep(1)
         if CONFIG_DICT["HARVESTER_MAC"]:
             send_magic_packet(*CONFIG_DICT["HARVESTER_MAC"])
+        #Лог левел инфо
+        if not os.path.exists(CONFIG_DICT["PLOTLOGPATCH"]):
+            command = '/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia configure -log-level "INFO"'.split()
+            p = subprocess.Popen(['sudo', '-S']+command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            cli = p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
+            print(cli)
+            harvester_restart(1)
+            
         del_trash()
         message_to_all(LANG["start_bot"], True)
 
