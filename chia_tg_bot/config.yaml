@@ -118,6 +118,6 @@ MQTT:
     bletrecker/sensor/temperature_room/state: 'Температура на балконе'
     bletrecker/sensor/humidity_room/state: 'Влажность на балконе'
   HOSTNAME: 192.168.0.120
-  USERNAME: bds89
-  PASS: Bodal2605%
+  USERNAME: 
+  PASS: 
 	#Данне MQTT для отображения, например температура в комнате с фермой
