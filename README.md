@@ -219,6 +219,23 @@ SSD_DEVICES:
   USED_RAM%: 95
   GPU_temperature: 70
     #Бот пришлет уведоление всем в чате, при превышении данных порогов по температурам и использованию оперативной памяти в процентах
+#Следующие параметры можно удалить:
+T_REX: false
+	#Используется ли майнер T_REX
+BINANCE_KEY: 1111
+BINANCE_SECRET: 1111
+OKEX_KEY: 1111
+OKEX_SECRET: 1111
+OKEX_PASS: 1111
+	#Ключи от бирж, для просмотра балансов
+MQTT:
+  TOPICS:
+    bletrecker/sensor/temperature_room/state: 'Температура на балконе'
+    bletrecker/sensor/humidity_room/state: 'Влажность на балконе'
+  HOSTNAME: 192.168.0.120
+  USERNAME: bds89
+  PASS: Bodal2605%
+	#Данне MQTT для отображения, например температура в комнате с фермой
 ```
 
 ## Остальное

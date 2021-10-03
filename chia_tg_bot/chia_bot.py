@@ -1,4 +1,5 @@
 import logging, re, os, json, yaml, datetime, psutil, time, sys, pickle, socket, threading, subprocess, urllib.request, ccxt, math, requests
+import paho.mqtt.subscribe as subscribe
 from subprocess import Popen, PIPE
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Bot, ReplyKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters, ConversationHandler
@@ -134,6 +135,8 @@ def disk_list(min_size, min_free=None, full=None):
     return(Disk_list)
 
 def sys_crit_params():
+    with open(CONFIG_PATCH) as f:
+        globals()["CONFIG_DICT"] = yaml.load(f.read(), Loader=yaml.FullLoader)
     text = ""
     sudo_password = CONFIG_DICT["SUDO_PASS"]
     #SSD temp
@@ -484,6 +487,86 @@ def binance_sell(name):
     retur = {"text":text}
     return(retur)
 
+def auto_power(chat_id, min=None, max=None):
+    text = LANG["auto_power_done"]+"\n"
+    step = round((max - min) / 5)
+    before = []
+    while step != 0:
+        if not before: pl = min
+        p = subprocess.Popen(['sudo', '-S', 'nvidia-smi', '-pl', str(pl)], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
+        i = 0
+        hash_summ = 0
+        time_start = datetime.datetime.now()
+        while datetime.datetime.now() - time_start < datetime.timedelta(seconds=300):
+            i += 1
+            if i == 1: time.sleep(60)
+            else: time.sleep(15)
+            try:
+                contents = urllib.request.urlopen("http://127.0.0.1:4067/summary").read()
+                data = json.loads(contents)
+                hash_summ += data["hashrate"]
+            except:
+                text = LANG["auto_power_fail"]
+                message(chat_id=chat_id, text=text, disable_notification=False)
+                return
+        hash1 = hash_summ/i/pl
+        text += str(pl)+": "+str(round(hash1/(10**6), 3))+"\n"
+        print(str(pl)+":"+str(round(hash1/(10**6), 3)))
+        if before:
+            if hash1 - before[1] > 0:
+                if pl - before[0] > 0:
+                    before[0] = pl
+                    pl += step
+                else:
+                    before[0] = pl
+                    pl -= step              
+            else: 
+                step = round(step/2)
+                if pl - before[0] > 0:
+                    if step != 0: before[0] = pl
+                    pl -= step
+                else:
+                    if step != 0: before[0] = pl
+                    pl += step
+            if pl < min or pl > max:
+                if pl <= min: result = min
+                if pl >= max: result = max
+                p = subprocess.Popen(['sudo', '-S', 'nvidia-smi', '-pl', str(result)], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
+                text += "\nPower limit={0}\n1W={1} MH".format(result, round(hash1/(10**6), 3))
+                message(chat_id=chat_id, text=text, disable_notification=False)
+                return
+            if step != 0: before[1] = hash1
+            
+            
+        else: 
+            before = [pl, hash1]
+            pl += step
+    if hash1 - before[1] > 0:
+        text += "\nPower limit={0}\n1W={1} MH".format(pl, round(hash1/(10**6), 3))
+    else:
+        text += "\nPower limit={0}\n1W={1} MH".format(before[0], before[1])
+    message(chat_id=chat_id, text=text, disable_notification=False)
+    return 
+
+def auto_power_start(chat_id, min=None, max=None):
+    if NVIDIA:
+        max = int(max)
+        min = int(min)
+        if not max or not min or max - min <= 0:
+            text = LANG["auto_power_fail"]
+            retur = {"text":text}
+            return(retur)
+        threading.Thread(target=auto_power, args=(chat_id, min, max,)).start()
+        text = LANG["auto_power_start"]
+        retur = {"text":text}
+        return(retur)
+    else:
+        text = LANG["auto_power_fail"]
+        retur = {"text":text}
+        return(retur)
+
 def gpu_pause(p):
     requests.post('http://127.0.0.1:4067/control', json={"pause": p})
     return(get_gpu_info())
@@ -507,7 +590,7 @@ def get_gpu_info():
 
     text += "{0}: {1}\n".format(LANG["gpu_invalid_count"], data["invalid_count"])
     if NVIDIA:
-        text += "Power limit: /pl (power limit Wt)\n"
+        text += "Power limit: /pl (power limit W)\nAuto power limit: /auto_power (min)W (max)W\n"
     #Кнопки
     if data["paused"]:
         keyboard = [[InlineKeyboardButton("GPU Pause OFF", callback_data='gpu_pause(False)')]]
@@ -643,6 +726,10 @@ def get_status():
         text = text + "{0} {1} {2} {3}".format(LANG["avg_otklik"], round(avg_time, 4), LANG["popyts"], len(match)) + "\n"
     except(FileNotFoundError, IndexError, ZeroDivisionError):
         print("except in get_status.time_proof")
+    if MQTT_dict:
+        text += "<b>MQTT:</b>\n"
+        for name, value in MQTT_dict.items():
+            text += "{0}: {1}\n".format(name, value)
 
     #Кнопки
     if globals()["CONFIG_DICT"]["AUTO_P"] == True:
@@ -2269,6 +2356,25 @@ def smartdog():  #Отслеживаем изменение SMART дисков
             time.sleep(3600)
 
         time.sleep(1700)
+def phase2time():
+    if os.path.exists(CONFIG_DICT["PLOTLOGPATCH"]):
+        file_list = os.listdir(CONFIG_DICT["PLOTLOGPATCH"])
+        file_dict = {}
+        #Будем учитывать только последние лог файлы, для этого отсорируем список файлов директории лога по дате создания
+        for filename in file_list:
+            file_dict[filename] = os.path.getmtime(CONFIG_DICT["PLOTLOGPATCH"]+"/"+filename)
+        sorted_tuples = sorted(file_dict.items(), key=lambda item: item[1], reverse=True)
+        sorted_file_dict = {k: v for k, v in sorted_tuples}
+    else: sorted_file_dict = []
+    ph2max = 13000
+    sorted_file_list = list(sorted_file_dict)
+    for filename in sorted_file_list[:CONFIG_DICT["NUM_PARALLEL_PLOTS"]*2]:
+        with open(CONFIG_DICT["PLOTLOGPATCH"]+"/"+filename, 'r') as f:
+            log = f.read()
+        if re.search(r"Time for phase 2 = (\d+)", log):
+            ph2 = re.findall(r"Time for phase 2 = (\d+)", log)[0]
+            if float(ph2) > ph2max: ph2max = float(ph2)
+    return(ph2max*1.2)
 
 def watchdog():
     print("Watchdog started")
@@ -2278,6 +2384,72 @@ def watchdog():
             sys_params = sys_crit_params()
             if sys_params:
                 message_to_all("Watchdog alert❗\n"+sys_params, None)
+            #наблюдаем за прогрессом плотинга, если что-то стоит сообщаем
+            if not "check_plotting_progress" in globals():
+                globals()["check_plotting_progress"] = {}
+            if "time" in globals()["check_plotting_progress"] and datetime.datetime.now() - globals()["check_plotting_progress"]["time"] < datetime.timedelta(minutes=30): pass
+            else:
+                text = ""
+                dir_plots = []
+                progress_plots = []
+                num_string = 0
+                num_finish_files = 0
+                if os.path.exists(CONFIG_DICT["PLOTLOGPATCH"]):
+                    file_list = os.listdir(CONFIG_DICT["PLOTLOGPATCH"])
+                    file_dict = {}
+                    #Будем учитывать только последние лог файлы, для этого отсорируем список файлов директории лога по дате создания
+                    for filename in file_list:
+                        file_dict[filename] = os.path.getmtime(CONFIG_DICT["PLOTLOGPATCH"]+"/"+filename)
+                    sorted_tuples = sorted(file_dict.items(), key=lambda item: item[1], reverse=True)
+                    sorted_file_dict = {k: v for k, v in sorted_tuples}
+                else: sorted_file_dict = []
+
+                dict_of_plots = {}
+
+                sorted_file_list = list(sorted_file_dict)
+                for filename in sorted_file_list[:CONFIG_DICT["NUM_PARALLEL_PLOTS"]*2]:
+                    with open(CONFIG_DICT["PLOTLOGPATCH"]+"/"+filename, 'r') as f:
+                        log = f.read()
+                    if re.search(r"Total time = (\w+.\w+)", log):
+                        num_string += log.count("\n")
+                        num_finish_files += 1
+                        tmp = re.findall(r"Starting plotting progress into temporary dirs: /\w+/(.+) and /\w+/(.+)", log)[0]
+                        ID = re.findall(r"ID: ([\w\d]+)", log)[0]
+                        if ID in globals()["check_plotting_progress"]:
+                            globals()["check_plotting_progress"].pop(ID)
+                    else:
+                        try:
+                            ID = re.findall(r"ID: ([\w\d]+)", log)[0]
+                            dict_of_plots[ID] = {}
+                            dict_of_plots[ID]["tmp"] = re.findall(r"Starting plotting progress into temporary dirs: /\w+/(.+) and /\w+/(.+)", log)[0]
+                            dict_of_plots[ID]["progr"] = log.count("\n")
+                        except(IndexError):
+                            print("except IndexError check_plotting_progress(filename:"+filename+")")
+                try:
+                    num_string_100 = num_string / num_finish_files
+                except(ZeroDivisionError):
+                    num_string_100 = 2627
+                
+                for ID, info in dict_of_plots.items():
+                    p = round(info["progr"]/num_string_100, 2)
+                    if ID in globals()["check_plotting_progress"]:
+                        if p == globals()["check_plotting_progress"][ID]["progr"] and (not "time31" in globals()["check_plotting_progress"][ID] or (p != 0.31 and p != 0.32) or datetime.datetime.now() - globals()["check_plotting_progress"][ID]["time31"] > datetime.timedelta(seconds=phase2)):
+                            text += "{0}: {1}\n{2} {3}\n".format(LANG["plot_not_response"], info["tmp"], num_to_scale((p*100), 20), str(p*100))
+                            globals()["check_plotting_progress"][ID]["progr"] = p
+                            globals()["check_plotting_progress"][ID]["tmp"] = info["tmp"]
+                            if p == 0.31 or p == 0.32: globals()["check_plotting_progress"][ID]["time31"] = datetime.datetime.now()
+                        else:
+                            globals()["check_plotting_progress"][ID]["progr"] = p
+                            globals()["check_plotting_progress"][ID]["tmp"] = info["tmp"]
+                            if p == 0.31 or p == 0.32: globals()["check_plotting_progress"][ID]["time31"] = datetime.datetime.now()
+                    else:
+                        globals()["check_plotting_progress"][ID] = {}
+                        globals()["check_plotting_progress"][ID]["progr"] = p
+                        globals()["check_plotting_progress"][ID]["tmp"] = info["tmp"]
+                        if p == 0.31 or p == 0.32: globals()["check_plotting_progress"][ID]["time31"] = datetime.datetime.now()
+                if text:
+                    message_to_all(text, True)
+                globals()["check_plotting_progress"]["time"] = datetime.datetime.now()
             if CONFIG_DICT["FULL_NODE"]:
                 cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet show').read()
                 cli = cli + os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
@@ -2563,7 +2735,7 @@ def power_limit(arg=None):
 def harvester_restart(arg=None):
     if arg and int(arg)==1:
         command = '/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia start harvester -r'.split()
-        p = subprocess.Popen(['sudo', '-S']+command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        p = subprocess.Popen(command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         text = p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
         retur = {"text":text}
         return(retur)
@@ -2649,10 +2821,14 @@ def my_command_handler(update: Update, context: CallbackContext):
         command = update.message.text[:update.message.entities[0].length]
         if not context.args: 
             arg = ""
+            arg2 = arg
             command_dict_without_arg = {'/notify':'set_notify(chat_id='+chat_id+')',
-                                        '/filter':'set_filter(chat_id='+chat_id+')'}
+                                        '/filter':'set_filter(chat_id='+chat_id+')',
+                                        '/auto_power':'auto_power_start(chat_id='+chat_id+')'}
         else: 
             arg = context.args[0]
+            if len(context.args) > 1: arg2 = context.args[1]
+            else: arg2 = arg
             command_dict_without_arg = {}
         command_dict= {'/help':'help_command("'+arg+'")',
                         '/wd':'set_watchdog_interval("'+arg+'")',
@@ -2664,7 +2840,8 @@ def my_command_handler(update: Update, context: CallbackContext):
                         '/set_plot_config':'set_plot_config("'+arg+'")',
                         '/check_plots_dirs':'check_plots_dirs("'+arg+'")',
                         '/pl':'power_limit("'+arg+'")',
-                        '/harvester_restart':'harvester_restart("'+arg+'")'}
+                        '/harvester_restart':'harvester_restart("'+arg+'")',
+                        '/auto_power':'auto_power_start(min="'+arg+'", max="'+arg2+'", chat_id='+chat_id+')'}
         command_dict.update(command_dict_without_arg)
         print(update.message.chat.first_name+"---->"+command+" "+arg)
         if int(context.user_data["farm"]) == 1:
@@ -2727,7 +2904,7 @@ def main() -> None:
     updater.dispatcher.add_handler(CommandHandler("check_plots_dirs", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("pl", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("harvester_restart", my_command_handler, USERS_FILTER))
-
+    updater.dispatcher.add_handler(CommandHandler("auto_power", my_command_handler, USERS_FILTER))
     # Start the Bot
     updater.start_polling()
 
@@ -2824,7 +3001,7 @@ def plots_check_time(log):
                         cli2 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
 
                     message_to_all("{0} {1}\n{2}\n{3} {4}\n{5}".format("bds89: ", bds_money, cli1, "other: ", other_money, cli2), None)
-                    globals()["send_coin_at"] = last_time = datetime.datetime.now()
+                    globals()["send_coin_at"] = datetime.datetime.now()
                 except:
                     pass
     matches = re.findall(
@@ -2912,6 +3089,13 @@ def del_trash():
     #Удаляем plots_file.sys файл
     os.remove(CONFIG_DICT["PLOTS_FILE"])
 
+def mqtt_on_message(client, userdata, message):
+    globals()["MQTT_dict"][CONFIG_DICT["MQTT"]["TOPICS"][message.topic]] = json.loads(message.payload)
+def mqtt(topics, host, username, password):
+    topics_list = list(topics)
+    subscribe.callback(mqtt_on_message, topics_list, hostname=host, auth = {'username':username, 'password':password})
+
+
 if __name__ == '__main__':
     param = sys.argv
     CONFIG_PATCH = get_script_dir()+"/config.yaml"
@@ -2919,6 +3103,9 @@ if __name__ == '__main__':
         CONFIG_DICT = yaml.load(f.read(), Loader=yaml.FullLoader)
 
     SCRIPT_DIR = get_script_dir()
+    #Найдем максимально время фазы 2, для вочдога.
+    phase2 = phase2time()
+    print("Phase 2 time: "+str(phase2))
 
     Q = Queue()
     Q_for_message = Queue()
@@ -2960,7 +3147,7 @@ if __name__ == '__main__':
         #Лог левел инфо
         if not os.path.exists(CONFIG_DICT["PLOTLOGPATCH"]):
             command = '/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia configure -log-level "INFO"'.split()
-            p = subprocess.Popen(['sudo', '-S']+command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            p = subprocess.Popen(command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
             cli = p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
             print(cli)
             harvester_restart(1)
@@ -2978,14 +3165,14 @@ if __name__ == '__main__':
             "USE_K33": CONFIG_DICT["USE_K33"]}
     Q.put(que)
 
-    if CONFIG_DICT["BINANCE_KEY"] and CONFIG_DICT["BINANCE_SECRET"]:
+    if "BINANCE_KEY" in CONFIG_DICT and "BINANCE_SECRET" in CONFIG_DICT:
         CONFIG_BINANCE = {
             "apiKey": CONFIG_DICT["BINANCE_KEY"],
             "secret": CONFIG_DICT["BINANCE_SECRET"],
             "rateLimit": 500,
             "enableRateLimit": True,
         }
-    if CONFIG_DICT["OKEX_KEY"] and CONFIG_DICT["OKEX_SECRET"] and CONFIG_DICT["OKEX_PASS"]:
+    if "OKEX_KEY" in CONFIG_DICT and "OKEX_SECRET" in CONFIG_DICT and "OKEX_PASS" in CONFIG_DICT:
         CONFIG_OKEX = {
             "apiKey": CONFIG_DICT["OKEX_KEY"],
             "secret": CONFIG_DICT["OKEX_SECRET"],
@@ -2993,6 +3180,11 @@ if __name__ == '__main__':
             "enableRateLimit": True,
         }
 
+    #MQTT подписка
+    if "MQTT" in CONFIG_DICT:
+        threading.Thread(target=mqtt, args=(CONFIG_DICT["MQTT"]["TOPICS"],CONFIG_DICT["MQTT"]["HOSTNAME"],CONFIG_DICT["MQTT"]["USERNAME"],CONFIG_DICT["MQTT"]["PASS"],)).start()
+        MQTT_dict = {}
+    
     threading.Thread(target=LogParser, args=(CONFIG_DICT["LOGPATCH"],)).start()  #читаем логи
     # Process(target=app.run(host='0.0.0.0')).start()     -Flask
     threading.Thread(target=not_sleep, args=(1,)).start()  #not_sleep
@@ -3017,4 +3209,3 @@ if __name__ == '__main__':
     # Для харвестеров
     else:
         threading.Thread(target=socket_server, args=(CONFIG_DICT["HARVESTER_PORT"],)).start()   #сокет для приема команд от фермы1
-        

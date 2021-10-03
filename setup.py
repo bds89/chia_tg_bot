@@ -15,6 +15,7 @@ setup(
         'psutil', 
         'python-telegram-bot==13.7', 
         'wakeonlan==2.0.1', 
-        'ccxt==1.56.41'
+        'ccxt==1.56.41',
+        'paho-mqtt'
 ]
 )

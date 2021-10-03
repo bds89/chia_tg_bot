@@ -19,6 +19,7 @@ russian = {"chia_stat":"Статус Chia","get_balance":"Узнать бала�
         Для просмотра журнала watchdog наберите /log <float> (часов)\n\
         Для удаления директорий из чиа в которых нет плотов и добавления директорий в которых найдены плоты наберите /check_plots_dirs 1\n\
         Для перезапуска харвестера наберите /harvester_restart 1\n\
+        Для поиска оптимального значения power_limit из диапазона [min-max] наберите /auto_power <min> <max>\n\
         Для наблюдением за количеством плотов прошедших фильтр наберите /filter <int> (>= количества плотов прошедших фильтр)\n\n\
         Не все плоты могут быть отменены. При засеве разных плотов с одинаковыми параметрами, бот не сможет найти и закрыть определенный процесс chia\
         Для корректной работы кнопок при создании плота, из-за ограничений Telegram, абсолютный путь к корню ваших дисков не должен превышать 52 байта UTF-8(52 символа для латинского алфавита)",
@@ -70,7 +71,7 @@ russian = {"chia_stat":"Статус Chia","get_balance":"Узнать бала�
         "filter_pass":"сек. Фильтр прошли:","wallet_in":"Пополнение кошелька на:","sec":"сек.",
         "no_plotted":"Ничего не сеялось","not_find_plot_file":"Не нашел файла с плотами","clear_plot":"Очистка плота:",
         "files_in":"файлов в","cant_dell_files_from":"Не смог удалить файлы из","dell_log_in":"Удалил лог файл в",
-        "start_text":"Выберите действие:\n/language\n/wd <секунд>\n/parallel_plots <int>; /table <int>\n/set_plot_config; \n/notify <on/off>; /filter <int>\n/check_plots_dirs 1\n/log <float> (часов)",
+        "start_text":"Выберите действие:\n/language\n/wd <секунд>\n/parallel_plots <int>; /table <int>\n/set_plot_config; \n/notify <on/off>; /filter <int>\n/check_plots_dirs 1\n/log <float> (часов)\n/harvester_restart 1\n/auto_power <min> <max>",
         "start_bot":"Бот запущен. Проверьте, возможно было отключение электричества",
         "start_with_params":"Запуск c параметрами","start_without_params":"Запуск без параметров",
         "cancel_dell_plots":"Сейчас произойдет очистка недосозданных плотов, нажмите ctrl+с для отмены",
@@ -79,7 +80,8 @@ russian = {"chia_stat":"Статус Chia","get_balance":"Узнать бала�
         "hashrate":"Хэшрейт","hashrate_day":"Хэшрейт за день","gpu_id":"GPU ID","gpu_name":"GPU NAME","gpu_fan_speed":"Fan","gpu_power":"Мощность",
         "gpu_temperature":"Температура","gpu_invalid_count":"gpu_invalid_count","binance_balances":"Балансы Binance", "okex_balances":"Балансы OKEX", "not_enought_mon":"Не достаточно",
         "for_sell_req":"для продажи, требуется", "current_governor":"Текущий говернор", "set_governor":"Установил", 
-        "for_restart_harvester": "Для перезагрузки харвестера наберите /harvester_restart 1"}
+        "for_restart_harvester": "Для перезагрузки харвестера наберите /harvester_restart 1", "plot_not_response": "остановился засев плота",
+        "auto_power_fail":"Не смог найти оптимальную мощность", "auto_power_done":"Оптимальная мощность найдена", "auto_power_start":"Ищу оптимальную мощность, ожидайте уведомления"}
 
 english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'day', 'dnya': 'days', 'dney': 'days', 
         'kolvo_popytok': 'The number of attempts exceeded, contact the administrator', 'need_auth': 'Authorization is required, enter the password:', 
@@ -88,14 +90,15 @@ english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'da
         'Use the buttons to appear the buttons to type any message.\n\
         To select a language, dial /language\n\
         To switch between nods, dial <int> Computer number\n\
-        To change the WatchDog timer, dial / WD <int> (seconds), to disable WatchDog dial / WD 0.\n\
-        To change the number of parallel plots, dial / Parallel_Plots <int>\n\
-        To select the table of the beginning of the next plot, dial / table <int>\n\
-        To change sowing settings, dial / set_plot_config <int>\n\
-        To enable / disable the display of silent notifications, dial / Notify <ON / OFF>\n\
-        To view the WatchDog log, dial / log <Float> (hours)\n\
-        To remove directories from Chia in which there are no plots and add directories in which the plots are found dial / check_plots_dirs 1\n\
+        To change the WatchDog timer, dial /wd <int> (seconds), to disable WatchDog dial /wd 0.\n\
+        To change the number of parallel plots, dial /parallel_plots <int>\n\
+        To select the table of the beginning of the next plot, dial /table <int>\n\
+        To change sowing settings, dial /set_plot_config <int>\n\
+        To enable / disable the display of silent notifications, dial /notify <ON / OFF>\n\
+        To view the WatchDog log, dial /log <Float> (hours)\n\
+        To remove directories from Chia in which there are no plots and add directories in which the plots are found dial /check_plots_dirs 1\n\
         To restart harvester, type /harvester_restart 1\n\
+        To find the optimal power_limit value from the range [min-max], type /auto_power <min> <max>\n\
         For observation of the number of plots of the past filter, dial / filter <int> (> = quantities of the plots of the past filter)\n\n\
         Not all plots can be canceled. When sowing different plots with the same parameters, the bot will not be able to find and close a specific CHIA process for correct operation of the buttons when creating a fleet, due to the restrictions of Telegram, the absolute path to the root of your disks should not exceed 52 bytes UTF-8 (52 characters for Latin alphabet)', 
         'time_to_win': 'Estimated winning time:', 'now_plots': 'Current plots:', 'avg_time': 'Average time on GIB:', 'left_to_plot': 'It remains to done plotting:', 
@@ -133,7 +136,7 @@ english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'da
         'long_ping': 'Long response from the plot:', 'filter_pass': 'sec.The filter passed:', 'wallet_in': 'Replenishment of the wallet on:', 'sec': 's.', 
         'no_plotted': 'Nothing was sown', 'not_find_plot_file': 'Did not find a file with plots', 'clear_plot': 'Cleaning the countertop:', 
         'cant_dell_files_from': 'I could not delete files from', 'dell_log_in': 'Removed log file in', 'start_text': 
-        'Choose an action:\n/language\n/wd <seconds>\n/parallel_plots <int>; /table <int>\n/set_plot_config; \n/notify <on/off>; /filter <int>\n/check_plots_dirs 1\n/log <float> (hours)', 
+        'Choose an action:\n/language\n/wd <seconds>\n/parallel_plots <int>; /table <int>\n/set_plot_config; \n/notify <on/off>; /filter <int>\n/check_plots_dirs 1\n/log <float> (hours)\n/harvester_restart 1\n/auto_power <min> <max>', 
         'start_bot': 'Bot is running.Check, it may have been disconnected electricity', 'start_with_params': 'Launch with parameters', 
         'start_without_params': 'Running without parameters', 'cancel_dell_plots': 'There will now be cleaned by false plots, press Ctrl + C to cancel', 
         'finished_move': 'Finished moving:', 'plots_from': 'plots out', 'time_done': 'Lead time:',
@@ -141,4 +144,5 @@ english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'da
         "hashrate":"Hashrate","hashrate_day":"Hashrate day","gpu_id":"GPU ID","gpu_name":"GPU NAME","gpu_fan_speed":"Fan","gpu_power":"Power",
         "gpu_temperature":"Temperature","gpu_invalid_count":"gpu_invalid_count","binance_balances":"Binance balances", "okex_balances":"OKEX balances", "not_enought_mon":"Not enought",
         "for_sell_req":"for sell, requried", "current_governor":"Сurrent governor", "set_governor":"Set",
-        "for_restart_harvester": "To restart harvester, type /harvester_restart 1"} 
+        "for_restart_harvester": "To restart harvester, type /harvester_restart 1", "plot_not_response": "plotting this plot was stoped",
+        "auto_power_fail":"Couldn't find optimal power", "auto_power_done":"Optimum power found", "auto_power_start":"Looking for optimal power, wait for notification"} 

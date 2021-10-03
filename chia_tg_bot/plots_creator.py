@@ -110,7 +110,8 @@ CONFIG_PATCH = get_script_dir()+"/config.yaml"
 with open(CONFIG_PATCH) as f:
     CONFIG_DICT = yaml.load(f.read(), Loader=yaml.FullLoader)  
 
-if __name__ == '__main__':  
+if __name__ == '__main__':
+    plot_finish = False
     param = sys.argv
     command =  "/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia plots create"
     command += " -f "+CONFIG_DICT["F_KEY"]
@@ -163,7 +164,7 @@ if __name__ == '__main__':
     print(command)
     for log in run(command):
         if not filename:
-            try:
+            if re.search(r"ID: (.+)", log):
                 filename = re.findall(r"ID: (.+)", log)[0]
                 p = Plot(filename, temp_0, dest_0, command, size, threads, temp2_0)
                 try:
@@ -174,7 +175,7 @@ if __name__ == '__main__':
                 all_plots.append(p)
                 with open(CONFIG_DICT["PLOTS_FILE"], "wb") as f:
                     pickle.dump(all_plots, f)
-            except(IndexError):
+            else:
                 before += log+"\n"
                 continue
         try:
@@ -195,6 +196,35 @@ if __name__ == '__main__':
         if re.search(r"Total time = (\w+.\w+)", log):
             total_time = re.findall(r"Total time = (\w+.\w+)", log)[0]
             print("Plot created from {0} to {1} in {2} s.".format(temp, dest, str(total_time)))
+            plot_finish = True
+    #Удалим запись о плоте
+    #Если закрылся неожиданно, удалим файлы
+    if not plot_finish and filename:
+        os.remove(filepatch+"/"+filename+".log")
+        #Удаляем темп файлы
+        try:
+            file_list = os.listdir(temp)
+            for file in file_list:
+                if file.count(filename):
+                    os.remove(temp+"/"+file)
+        except(FileNotFoundError): pass
+        #Удаляем темп2 файлы
+        if temp2_0:
+            try:
+                file_list = os.listdir(temp2)
+                for file in file_list:
+                    if file.count(filename) and file.count("2.tmp"):
+                        os.remove(temp2+"/"+file)
+            except(FileNotFoundError): pass
+        #Удаляем dest файлы
+        try:
+            file_list = os.listdir(dest)
+            for file in file_list:
+                if file.count(filename) and file.count("2.tmp"):
+                    os.remove(dest+"/"+file)
+        except(FileNotFoundError): pass
+
+        print("Plot "+temp+"\n["+str(temp2)+"\n➜ "+dest+" (k"+size+") was terminated")
     #Удалим запись о плоте
     with open(CONFIG_DICT["PLOTS_FILE"], "rb") as f:
         all_plots = pickle.load(f)
