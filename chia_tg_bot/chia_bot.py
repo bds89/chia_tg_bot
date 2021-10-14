@@ -1,5 +1,6 @@
 import logging, re, os, json, yaml, datetime, psutil, time, sys, pickle, socket, threading, subprocess, urllib.request, ccxt, math, requests
 import paho.mqtt.subscribe as subscribe
+import paho.mqtt.publish as publish
 from subprocess import Popen, PIPE
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Bot, ReplyKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters, ConversationHandler
@@ -31,9 +32,16 @@ def socket_server(port):
         if not text: break
         time.sleep(5)
 
+    global mySocket
     mySocket = socket.socket()
-    mySocket.bind((host,port))
-
+    try_n = 0
+    while try_n < 7:
+        try:
+            mySocket.bind((host,port))
+            break
+        except(OSError): 
+            time.sleep(10)
+            try_n += 1
 
     while True:
         mySocket.listen(1)
@@ -138,6 +146,7 @@ def sys_crit_params():
     with open(CONFIG_PATCH) as f:
         globals()["CONFIG_DICT"] = yaml.load(f.read(), Loader=yaml.FullLoader)
     text = ""
+    text_for_mqtt = ""
     sudo_password = CONFIG_DICT["SUDO_PASS"]
     #SSD temp
     for key, value in CONFIG_DICT["SSD_DEVICES"].items():
@@ -147,6 +156,7 @@ def sys_crit_params():
         cli = p.communicate(sudo_password + '\n')[0]
         try:
             data = json.loads(cli)
+            # text_for_mqtt += "SSD temperature "+str(key)+";"+str(data["temperature"]["current"])+";"
             if "temperature" in data and data["temperature"]["current"] >= CONFIG_DICT["CRITICAL_PARAMS"]["SSD_temperature"]:
                 text += "SSD temperature "+str(key)+" = "+str(data["temperature"]["current"])+"℃\n"
         except(json.decoder.JSONDecodeError, IndexError, KeyError):
@@ -154,6 +164,7 @@ def sys_crit_params():
 
     #Psutil params
     USED_RAM = psutil.virtual_memory()[2]
+    text_for_mqtt += "USED_RAM;"+str(USED_RAM)+";"
     if USED_RAM >= CONFIG_DICT["CRITICAL_PARAMS"]["USED_RAM%"]:
         text += "USED_RAM = "+str(USED_RAM)+"%\n"
         if psutil.swap_memory()[0] == 0:
@@ -162,6 +173,7 @@ def sys_crit_params():
             if psutil.swap_memory()[0] > 0:
                 text += LANG["SWAP_on_on_demand"]+retur["text"]+"\n"
     CPU_temp = psutil.sensors_temperatures(fahrenheit=False)["coretemp"][0][1]
+    text_for_mqtt += "CPU_temperature;"+str(CPU_temp)+";"
     if CPU_temp >= CONFIG_DICT["CRITICAL_PARAMS"]["CPU_temperature"]:
         text += "CPU_temperature = "+str(CPU_temp)+"℃\n"
     #Disk temp
@@ -174,6 +186,7 @@ def sys_crit_params():
             cli = p.communicate(sudo_password + '\n')[0]
             try:
                 data = json.loads(cli)
+                # text_for_mqtt += "HDD temperature "+dev+" ("+val[4]+");"+str(data["temperature"]["current"])+";"
                 if "temperature" in data and data["temperature"]["current"] >= CONFIG_DICT["CRITICAL_PARAMS"]["HDD_temperature"]:
                     text += "HDD temperature "+dev+" ("+val[4]+") = "+str(data["temperature"]["current"])+"℃\n"
             except(json.decoder.JSONDecodeError, IndexError, KeyError):
@@ -185,10 +198,12 @@ def sys_crit_params():
             contents = urllib.request.urlopen("http://127.0.0.1:4067/summary").read()
             data = json.loads(contents)
             for item in data["gpus"]:
+                text_for_mqtt += "GPU temperature "+str(item["device_id"])+";"+str(item["temperature"])+";"
                 if int(item["temperature"]) >= CONFIG_DICT["CRITICAL_PARAMS"]["GPU_temperature"]:
                     text += "GPU temperature "+str(item["device_id"])+" = "+str(item["temperature"])+"℃\n"
         except:
             pass
+    mqtt_publish(text_for_mqtt)
     return text
 
 
@@ -491,6 +506,8 @@ def auto_power(chat_id, min=None, max=None):
     text = LANG["auto_power_done"]+"\n"
     step = round((max - min) / 5)
     before = []
+    max_finded_pl = 0
+    max_finded_hash = 0
     while step != 0:
         if not before: pl = min
         p = subprocess.Popen(['sudo', '-S', 'nvidia-smi', '-pl', str(pl)], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
@@ -511,6 +528,9 @@ def auto_power(chat_id, min=None, max=None):
                 message(chat_id=chat_id, text=text, disable_notification=False)
                 return
         hash1 = hash_summ/i/pl
+        if hash1 > max_finded_hash:
+            max_finded_pl = pl
+            max_finded_hash = hash1
         text += str(pl)+": "+str(round(hash1/(10**6), 3))+"\n"
         print(str(pl)+":"+str(round(hash1/(10**6), 3)))
         if before:
@@ -543,10 +563,13 @@ def auto_power(chat_id, min=None, max=None):
         else: 
             before = [pl, hash1]
             pl += step
-    if hash1 - before[1] > 0:
-        text += "\nPower limit={0}\n1W={1} MH".format(pl, round(hash1/(10**6), 3))
-    else:
-        text += "\nPower limit={0}\n1W={1} MH".format(before[0], before[1])
+    text += "\nPower limit={0}\n1W={1} MH".format(max_finded_pl, round(max_finded_hash/(10**6), 3))
+    p = subprocess.Popen(['sudo', '-S', 'nvidia-smi', '-pl', str(max_finded_pl)], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
+    # if hash1 - before[1] > 0:
+    #     text += "\nPower limit={0}\n1W={1} MH".format(pl, round(hash1/(10**6), 3))
+    # else:
+    #     text += "\nPower limit={0}\n1W={1} MH".format(before[0], before[1])
     message(chat_id=chat_id, text=text, disable_notification=False)
     return 
 
@@ -580,7 +603,7 @@ def get_gpu_info():
         retur = {"text":text}
         return(retur)
     data = json.loads(contents)
-    text += "{0}: {1}\n".format(LANG["gpu_difficulty"], round(data["difficulty"],2))
+    # text += "{0}: {1}\n".format(LANG["gpu_difficulty"], round(data["difficulty"],2))
     if len(data["gpus"]) > 1:
         text += "{0}: {1}\n{2}: {3}\n\n".format(LANG["hashrate"], round(data["hashrate"]/(10**6),2), LANG["hashrate_day"], round(data["hashrate_day"]/(10**6),2))
     for item in data["gpus"]:
@@ -726,7 +749,7 @@ def get_status():
         text = text + "{0} {1} {2} {3}".format(LANG["avg_otklik"], round(avg_time, 4), LANG["popyts"], len(match)) + "\n"
     except(FileNotFoundError, IndexError, ZeroDivisionError):
         print("except in get_status.time_proof")
-    if MQTT_dict:
+    if "MQTT_dict" in globals():
         text += "<b>MQTT:</b>\n"
         for name, value in MQTT_dict.items():
             text += "{0}: {1}\n".format(name, value)
@@ -2009,6 +2032,7 @@ def plot_manager():
                     sorted_for_sort= {k: v for k, v in sorted_tuples}
                     for key in sorted_for_sort.keys():
                         plots_sizes_sorted[key] = plots_sizes[key]
+                    # print(plots_sizes_sorted)
                     sizes = [33,32]
                     #Будем пробовать сеять подходящий вариант
                     for sz in sizes:
@@ -2259,11 +2283,9 @@ def plot_manager():
                             else: used_threads += 2
                             free_parallel_plots -= weight_of_plots[int(plot.size)]
                     free_parallel_plots -= weight_of_plots[int(size)]
-
-                    print("proc_thread="+str(proc_thread))
-                    print("used_threads="+str(used_threads))
-                    print("free_parallel_plots="+str(free_parallel_plots))
-                    if free_parallel_plots == 0 and proc_thread - used_threads >= 2: threads = proc_thread - used_threads
+                    if free_parallel_plots == 0 and proc_thread - used_threads >= 2: 
+                        threads = proc_thread - used_threads
+                        if threads > 8: threads = 8
                     else:
                         if proc_thread - used_threads - free_parallel_plots*2 > 0: threads = 4
                         else: threads = 2
@@ -2793,6 +2815,38 @@ def message_to_all(text, disable_notification, node=1):
         data = {"data": 'message_to_all(text=q["text"], disable_notification=q["disable_notification"], node=node)', "q": q}
         socket_client(CONFIG_DICT["NODE_LIST"][1], CONFIG_DICT["FULL_NODE_PORT"], data)
 
+def mqtt_publish(text, node=1):
+    if CONFIG_DICT["FULL_NODE"]:
+        if "MQTT" in CONFIG_DICT:
+            host = CONFIG_DICT["MQTT"]["HOSTNAME"]
+            username = CONFIG_DICT["MQTT"]["USERNAME"]
+            password = CONFIG_DICT["MQTT"]["PASS"]
+            i = 0
+            msgs = []
+            one_dict = {}
+            for key_or_value in text.split(";"):
+                if i%2 == 0: 
+                    one_dict["topic"] = "ferma/node"+str(node)+"/"+key_or_value
+                    i+=1
+                else: 
+                    one_dict["payload"] = key_or_value
+                    i+=1
+                    msgs.append(one_dict)
+                    one_dict = {}
+
+            publish.multiple(msgs, hostname=host, auth = {'username':username, 'password':password})
+    else:
+        q = text
+        data = {"data": 'mqtt_publish(text=q, node=node)', "q": q}
+        socket_client(CONFIG_DICT["NODE_LIST"][1], CONFIG_DICT["FULL_NODE_PORT"], data)
+
+def restart():
+    mySocket.close()
+    subprocess.call("python3 "+SCRIPT_DIR+"/restart_bot.py", shell=True)
+    text = "restarting bot...wait please"
+    retur = {"text":text}
+    return(retur)
+
 def set_farm(update: Update, context: CallbackContext) -> None:
     if not int(update.message.text) in CONFIG_DICT["NODE_LIST"]:
         reply_message(update, LANG["wrong_num"], reply_markup=REPLY_MARKUP[update['message']['chat']['id']])
@@ -2841,7 +2895,8 @@ def my_command_handler(update: Update, context: CallbackContext):
                         '/check_plots_dirs':'check_plots_dirs("'+arg+'")',
                         '/pl':'power_limit("'+arg+'")',
                         '/harvester_restart':'harvester_restart("'+arg+'")',
-                        '/auto_power':'auto_power_start(min="'+arg+'", max="'+arg2+'", chat_id='+chat_id+')'}
+                        '/auto_power':'auto_power_start(min="'+arg+'", max="'+arg2+'", chat_id='+chat_id+')',
+                        '/restart':'restart()',}
         command_dict.update(command_dict_without_arg)
         print(update.message.chat.first_name+"---->"+command+" "+arg)
         if int(context.user_data["farm"]) == 1:
@@ -2905,6 +2960,7 @@ def main() -> None:
     updater.dispatcher.add_handler(CommandHandler("pl", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("harvester_restart", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("auto_power", my_command_handler, USERS_FILTER))
+    updater.dispatcher.add_handler(CommandHandler("restart", my_command_handler, USERS_FILTER))
     # Start the Bot
     updater.start_polling()
 
@@ -2984,6 +3040,8 @@ def plots_check_time(log):
 
             if "XCH_ADDR_BDS89" in CONFIG_DICT:
                 try:
+                    start = cli.index("Local Harvester")
+                    end = cli.index("Estimated network space") -1
                     total_size_of_plots = re.findall(r"Total size of plots: (\d*.\d*)\s([MGTPE])iB", cli)
                     size_of_plots = re.findall(r"(.*Harvester.*)\n.*\d+ plots of size: (\d*.\d*)\s([MGTPE])iB", cli)
 
@@ -3000,7 +3058,7 @@ def plots_check_time(log):
                     if "XCH_ADDR_OTHER" in CONFIG_DICT and other_money > 0.01:
                         cli2 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
 
-                    message_to_all("{0} {1}\n{2}\n{3} {4}\n{5}".format("bds89: ", bds_money, cli1, "other: ", other_money, cli2), None)
+                    message_to_all("{0} {1}\n{2}\n{3} {4}\n{5}\nINFO:\n{6}".format("bds89: ", bds_money, cli1, "other: ", other_money, cli2, cli[start:end]), None)
                     globals()["send_coin_at"] = datetime.datetime.now()
                 except:
                     pass
@@ -3132,7 +3190,7 @@ if __name__ == '__main__':
 
     try:
         if param[1] != "-s":
-            message_to_all(LANG["start_bot"], None)
+            message_to_all(LANG["start_bot"], True)
         print(LANG["start_with_params"]+"\n")
     except(IndexError):
         print(LANG["start_without_params"]+"\n"+LANG["cancel_dell_plots"])
@@ -3209,3 +3267,4 @@ if __name__ == '__main__':
     # Для харвестеров
     else:
         threading.Thread(target=socket_server, args=(CONFIG_DICT["HARVESTER_PORT"],)).start()   #сокет для приема команд от фермы1
+    mySocket = False   #Переменная для закрытия сокета, при рестарте
