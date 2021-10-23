@@ -137,9 +137,10 @@ if __name__ == '__main__':
             threads = p[3:]
             continue
     command += " -k "+str(size)
-    ram_sizes = {"25":512, "32":3390, "33":7400, "34":14800, "35":29600}
+    ram_sizes = {"25":512, "32":3390, "33":8000, "34":14800, "35":29600}
     command += " -b "+str(ram_sizes[str(size)])
     command += " -r "+threads
+    command += " -u 96"
     try:
         os.mkdir(temp)
     except(OSError):

@@ -187,7 +187,9 @@ def sys_crit_params():
             try:
                 data = json.loads(cli)
                 # text_for_mqtt += "HDD temperature "+dev+" ("+val[4]+");"+str(data["temperature"]["current"])+";"
-                if "temperature" in data and data["temperature"]["current"] >= CONFIG_DICT["CRITICAL_PARAMS"]["HDD_temperature"]:
+                if "usb" in val[4]: crit_t = CONFIG_DICT["CRITICAL_PARAMS"]["HDD_temperature"] + 5
+                else: crit_t = CONFIG_DICT["CRITICAL_PARAMS"]["HDD_temperature"]
+                if "temperature" in data and data["temperature"]["current"] >= crit_t:
                     text += "HDD temperature "+dev+" ("+val[4]+") = "+str(data["temperature"]["current"])+"℃\n"
             except(json.decoder.JSONDecodeError, IndexError, KeyError):
                 continue
@@ -199,6 +201,10 @@ def sys_crit_params():
             data = json.loads(contents)
             for item in data["gpus"]:
                 text_for_mqtt += "GPU temperature "+str(item["device_id"])+";"+str(item["temperature"])+";"
+                text_for_mqtt += "GPU hashrate "+str(item["device_id"])+";"+str(round(item["hashrate_minute"]/(10**6),2))+";"
+                text_for_mqtt += "GPU fan speed "+str(item["device_id"])+";"+str(item["fan_speed"])+";"
+                text_for_mqtt += "GPU power "+str(item["device_id"])+";"+str(item["power"])+";"
+                    
                 if int(item["temperature"]) >= CONFIG_DICT["CRITICAL_PARAMS"]["GPU_temperature"]:
                     text += "GPU temperature "+str(item["device_id"])+" = "+str(item["temperature"])+"℃\n"
         except:
@@ -2141,7 +2147,7 @@ def plot_manager():
                             print("proc_thread="+str(proc_thread))
                             print("used_threads="+str(used_threads))
                             print("free_parallel_plots="+str(free_parallel_plots))
-                            if free_parallel_plots == 0 and proc_thread - used_threads >= 2: threads = proc_thread - used_threads
+                            if free_parallel_plots == 0 and proc_thread - used_threads >= 4: threads = 4
                             else:
                                 if proc_thread - used_threads - free_parallel_plots*2 > 0: threads = 4
                                 else: threads = 2
@@ -2707,10 +2713,11 @@ def show_log(arg=None):
             text = LANG["num_must_be_posit"]
             retur = {"text":text}
             return(retur)
-        with open(CONFIG_DICT["WATCHDOG_LOG"]) as f:
-            log = []
-            for line in f:
-                log.append(line)
+        log = []
+        if os.path.exists(CONFIG_DICT["WATCHDOG_LOG"]):
+            with open(CONFIG_DICT["WATCHDOG_LOG"]) as f:
+                for line in f:
+                    log.append(line)
 
         dt = datetime.datetime.now()
         timestamp_now = datetime.datetime.fromtimestamp(time.mktime(dt.timetuple()))
@@ -2743,6 +2750,12 @@ def power_limit(arg=None):
                 return(retur)
             p = subprocess.Popen(['sudo', '-S', 'nvidia-smi', '-pl', str(arg)], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
             text = p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
+            if "All done" in text:
+                with open(CONFIG_PATCH) as f:
+                    globals()["CONFIG_DICT"] = yaml.load(f.read(), Loader=yaml.FullLoader)
+                globals()["CONFIG_DICT"]["POWER_LIMIT"] = arg
+                with open(CONFIG_PATCH, "w") as f:
+                    f.write(yaml.dump(CONFIG_DICT, sort_keys=False))
             retur = {"text":text}
             return(retur)
         
@@ -3056,6 +3069,7 @@ def plots_check_time(log):
                     if bds_money > 0.01:
                         cli1 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_BDS89"])).read()
                     if "XCH_ADDR_OTHER" in CONFIG_DICT and other_money > 0.01:
+                        time.sleep(2)
                         cli2 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
 
                     message_to_all("{0} {1}\n{2}\n{3} {4}\n{5}\nINFO:\n{6}".format("bds89: ", bds_money, cli1, "other: ", other_money, cli2, cli[start:end]), None)
@@ -3249,7 +3263,9 @@ if __name__ == '__main__':
     threading.Thread(target=watchdog).start()  #WatchDog
     threading.Thread(target=smartdog).start()  #SmartDog
     # проверим есть ли драйвера nvidia
-    p = subprocess.Popen(['sudo', '-S', 'nvidia-smi', '-pl', '151'], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    if "POWER_LIMIT" in CONFIG_DICT: pl = str(CONFIG_DICT["POWER_LIMIT"])
+    else: pl = str(151)
+    p = subprocess.Popen(['sudo', '-S', 'nvidia-smi', '-pl', pl], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     cli = p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
     if cli:
         NVIDIA = 151
