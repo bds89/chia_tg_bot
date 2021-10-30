@@ -744,17 +744,17 @@ def get_status():
     if not act_plots: time_left = "∞"
     else: time_left = str(datetime.timedelta(seconds=round(((Stat["space_left"]/(1000**3)) * Stat["AVG_time_per_Gb"])/act_plots)))
     text = text + "{0} {1} GiB {2} {3} ".format(LANG["left_to_plot"], round(Stat["space_left"]/(1000**3)), LANG["za"], time_delta_rus(time_left)) + "\n" 
-    try:
-        with open(CONFIG_DICT["LOGPATCH"], 'r') as f:
-            log = f.read()
-        match = re.findall(r"Found [0-9] proofs. Time: (\d+.\d+) s. Total", log)
-        time_summ = 0
-        for otklik in match:
-            time_summ += float(otklik)
-        avg_time = time_summ / len(match)
-        text = text + "{0} {1} {2} {3}".format(LANG["avg_otklik"], round(avg_time, 4), LANG["popyts"], len(match)) + "\n"
-    except(FileNotFoundError, IndexError, ZeroDivisionError):
-        print("except in get_status.time_proof")
+    # try:
+    #     with open(CONFIG_DICT["LOGPATCH"], 'r') as f:
+    #         log = f.read()
+    #     match = re.findall(r"Found [0-9] proofs. Time: (\d+.\d+) s. Total", log)
+    #     time_summ = 0
+    #     for otklik in match:
+    #         time_summ += float(otklik)
+    #     avg_time = time_summ / len(match)
+    #     text = text + "{0} {1} {2} {3}".format(LANG["avg_otklik"], round(avg_time, 4), LANG["popyts"], len(match)) + "\n"
+    # except(FileNotFoundError, IndexError, ZeroDivisionError):
+    #     print("except in get_status.time_proof")
     if "MQTT_dict" in globals():
         text += "<b>MQTT:</b>\n"
         for name, value in MQTT_dict.items():
@@ -1949,7 +1949,6 @@ def create_plot(temp, dest, temp2=None, size=32, threads=2):
     patch = "python3 "+SCRIPT_DIR+"/plots_creator.py"
     patch += " '-t "+temp+"' '-2 "+temp2+"' '-d "+dest+"' '-z "+str(size)+"' '-r "+str(threads)+"'"
     # patch = patch.split()
-    print(patch)
     process = Popen(patch, shell=True)
 
 
@@ -2154,11 +2153,12 @@ def plot_manager():
                                         
                             # Создаем плот
                             create_plot(temp, dest, temp2, size, threads)
+                            time.sleep(15)
                             break
                         if temp and dest: break
                     if temp and dest: pass
                     else: last_time = datetime.datetime.now()
-                    time.sleep(10)
+                    time.sleep(5)
                     continue
 
 #Если сеем только к32, старый код
@@ -2351,7 +2351,7 @@ def smartdog():  #Отслеживаем изменение SMART дисков
     disk_smart_dict ={}
     while (True):
         now = datetime.datetime.now()
-        if now.hour == 0 or now.hour == 12 or not disk_smart_dict:
+        if now.hour == 10 or not disk_smart_dict:
             devices = disk_list(CONFIG_DICT["MIN_DISK_TOTAL"]*1000000000)
             prev_disks = []
             for dev_num, val in devices.items():

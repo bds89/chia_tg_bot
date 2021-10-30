@@ -39,6 +39,11 @@ def socket_client(host, port, request):
         mySocket.close()
         return data_unpickle
 
+def message_to_all(text, disable_notification):
+    q = {"text": text, "disable_notification": disable_notification}
+    data = {"data": 'message_to_all(text=q["text"], disable_notification=q["disable_notification"], node=node)', "q": q}
+    socket_client(CONFIG_DICT["NODE_LIST"][1], CONFIG_DICT["FULL_NODE_PORT"], data)
+
 #search all plots, search only old plots, dell plots   
 def plots_on_disk(patch, list={"num_del":0}, old=False, dell=False, size=False, depth=0):
     if depth > CONFIG_DICT["DEPTH"]: return(list)
@@ -137,10 +142,10 @@ if __name__ == '__main__':
             threads = p[3:]
             continue
     command += " -k "+str(size)
-    ram_sizes = {"25":512, "32":3390, "33":8000, "34":14800, "35":29600}
+    ram_sizes = {"25":512, "32":3390, "33":7400, "34":14800, "35":29600}
     command += " -b "+str(ram_sizes[str(size)])
     command += " -r "+threads
-    command += " -u 96"
+
     try:
         os.mkdir(temp)
     except(OSError):
@@ -201,6 +206,9 @@ if __name__ == '__main__':
     #Удалим запись о плоте
     #Если закрылся неожиданно, удалим файлы
     if not plot_finish and filename:
+        with open(filepatch+"/"+filename+".log", 'r') as f:
+            log = f.read()
+            percent = (log.count("\n")/2627)*100
         os.remove(filepatch+"/"+filename+".log")
         #Удаляем темп файлы
         try:
@@ -225,7 +233,8 @@ if __name__ == '__main__':
                     os.remove(dest+"/"+file)
         except(FileNotFoundError): pass
 
-        print("Plot "+temp+"\n["+str(temp2)+"\n➜ "+dest+" (k"+size+") was terminated")
+        text = "Plot "+temp+"\n["+str(temp2)+"\n➜ "+dest+" (k"+size+") was terminated.\n"+percent+"%\nCommand: "+command
+        message_to_all(text, True)
     #Удалим запись о плоте
     with open(CONFIG_DICT["PLOTS_FILE"], "rb") as f:
         all_plots = pickle.load(f)
