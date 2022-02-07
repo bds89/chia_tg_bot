@@ -142,7 +142,7 @@ if __name__ == '__main__':
             threads = p[3:]
             continue
     command += " -k "+str(size)
-    ram_sizes = {"25":512, "32":3390, "33":7400, "34":14800, "35":29600}
+    ram_sizes = {"25":512, "32":3840, "33":7680, "34":14800, "35":29600}
     command += " -b "+str(ram_sizes[str(size)])
     command += " -r "+threads
 
@@ -208,7 +208,7 @@ if __name__ == '__main__':
     if not plot_finish and filename:
         with open(filepatch+"/"+filename+".log", 'r') as f:
             log = f.read()
-            percent = (log.count("\n")/2627)*100
+            percent = round((log.count("\n")/2627)*100)
         os.remove(filepatch+"/"+filename+".log")
         #Удаляем темп файлы
         try:
@@ -233,7 +233,7 @@ if __name__ == '__main__':
                     os.remove(dest+"/"+file)
         except(FileNotFoundError): pass
 
-        text = "Plot "+temp+"\n["+str(temp2)+"\n➜ "+dest+" (k"+size+") was terminated.\n"+percent+"%\nCommand: "+command
+        text = "Plot "+temp+"\n["+str(temp2)+"]\n➜ "+dest+" (k"+str(size)+") was terminated.\n"+str(percent)+"%\nCommand: "+command
         message_to_all(text, True)
     #Удалим запись о плоте
     with open(CONFIG_DICT["PLOTS_FILE"], "rb") as f:

@@ -177,23 +177,42 @@ def sys_crit_params():
     if CPU_temp >= CONFIG_DICT["CRITICAL_PARAMS"]["CPU_temperature"]:
         text += "CPU_temperature = "+str(CPU_temp)+"℃\n"
     #Disk temp
+    #HDDTEMP
     devices = disk_list(CONFIG_DICT["MIN_DISK_TOTAL"]*1000000000)
     prev_disks = []
     for dev_num, val in devices.items():
         dev = re.findall(r"\D+", dev_num)[0]
         if not dev in prev_disks:
-            p = subprocess.Popen(['sudo', '-S', 'smartctl', '-A', '-j', dev], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            p = subprocess.Popen(['sudo', '-S', 'hddtemp', dev, '--numeric', '--quiet'], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
             cli = p.communicate(sudo_password + '\n')[0]
             try:
-                data = json.loads(cli)
-                # text_for_mqtt += "HDD temperature "+dev+" ("+val[4]+");"+str(data["temperature"]["current"])+";"
+                data = int(cli)
+                # text_for_mqtt += "HDD temperature "+dev+" ("+val[4]+");"+str(data)+";"
                 if "usb" in val[4]: crit_t = CONFIG_DICT["CRITICAL_PARAMS"]["HDD_temperature"] + 5
                 else: crit_t = CONFIG_DICT["CRITICAL_PARAMS"]["HDD_temperature"]
-                if "temperature" in data and data["temperature"]["current"] >= crit_t:
-                    text += "HDD temperature "+dev+" ("+val[4]+") = "+str(data["temperature"]["current"])+"℃\n"
-            except(json.decoder.JSONDecodeError, IndexError, KeyError):
+                if data >= crit_t:
+                    text += "HDD temperature "+dev+" ("+val[4]+") = "+str(data)+"℃\n"
+            except(ValueError):
                 continue
             prev_disks.append(dev)
+    #smartctl
+    # devices = disk_list(CONFIG_DICT["MIN_DISK_TOTAL"]*1000000000)
+    # prev_disks = []
+    # for dev_num, val in devices.items():
+    #     dev = re.findall(r"\D+", dev_num)[0]
+    #     if not dev in prev_disks:
+    #         p = subprocess.Popen(['sudo', '-S', 'smartctl', '-A', '-j', dev], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    #         cli = p.communicate(sudo_password + '\n')[0]
+    #         try:
+    #             data = json.loads(cli)
+    #             # text_for_mqtt += "HDD temperature "+dev+" ("+val[4]+");"+str(data["temperature"]["current"])+";"
+    #             if "usb" in val[4]: crit_t = CONFIG_DICT["CRITICAL_PARAMS"]["HDD_temperature"] + 5
+    #             else: crit_t = CONFIG_DICT["CRITICAL_PARAMS"]["HDD_temperature"]
+    #             if "temperature" in data and data["temperature"]["current"] >= crit_t:
+    #                 text += "HDD temperature "+dev+" ("+val[4]+") = "+str(data["temperature"]["current"])+"℃\n"
+    #         except(json.decoder.JSONDecodeError, IndexError, KeyError):
+    #             continue
+    #         prev_disks.append(dev)
     #GPU temp
     if CONFIG_DICT["T_REX"]:
         try:
@@ -336,7 +355,7 @@ def get_binance_bal():
     
 def get_okex_bal():
     exchange = ccxt.okex5(CONFIG_OKEX)
-    globals()["balances_okex"] = exchange.fetch_balance()
+    globals()["balances_okex"] = exchange.fetch_balance({'type': 'funding'})
     globals()["markets_okex"] = exchange.load_markets()
     globals()["usdt_exc_okex"] = {}
     for name, bal in globals()["balances_okex"]["free"].items():
@@ -346,10 +365,10 @@ def get_okex_bal():
                 globals()["usdt_exc_okex"][name] = exchange.fetchTicker(para)['ask']
 
 def get_balance():
-    if CONFIG_DICT["BINANCE_KEY"] and CONFIG_DICT["BINANCE_SECRET"]:
+    if "BINANCE_KEY" in CONFIG_DICT and "BINANCE_SECRET" in CONFIG_DICT:
         binance_thread_get_bal = threading.Thread(target=get_binance_bal)
         binance_thread_get_bal.start()
-    if CONFIG_DICT["OKEX_KEY"] and CONFIG_DICT["OKEX_SECRET"] and CONFIG_DICT["OKEX_PASS"]:
+    if "OKEX_KEY" in CONFIG_DICT and "OKEX_SECRET" in CONFIG_DICT and "OKEX_PASS" in CONFIG_DICT:
         okex_thread_get_bal = threading.Thread(target=get_okex_bal)
         okex_thread_get_bal.start()
 
@@ -395,7 +414,8 @@ def get_balance():
         except (ValueError, ConnectionError, Timeout, TooManyRedirects) as e:
             print(e)
 
-    binance_thread_get_bal.join(5)
+    if "BINANCE_KEY" in CONFIG_DICT and "BINANCE_SECRET" in CONFIG_DICT:
+        binance_thread_get_bal.join(10)
     if "balances_binance" in globals() and "markets_binance" in globals() and not binance_thread_get_bal.is_alive():
         text += "<b>"+LANG["binance_balances"]+"</b>\n"
         keyboard = [[]]
@@ -428,9 +448,12 @@ def get_balance():
         globals().pop("markets_binance")
         globals().pop("usdt_exc_binance")          
 
-    okex_thread_get_bal.join(5)
+    if "OKEX_KEY" in CONFIG_DICT and "OKEX_SECRET" in CONFIG_DICT and "OKEX_PASS" in CONFIG_DICT:
+        okex_thread_get_bal.join(10)
     if "balances_okex" in globals() and "markets_okex" in globals() and not okex_thread_get_bal.is_alive():
         text += "<b>"+LANG["okex_balances"]+"</b>\n"
+        if not "keyboard" in locals():
+            keyboard = [[]]
         for name, bal in globals()["balances_okex"]["free"].items():
             if bal > 0:
                 para = name+"/USDT"
@@ -659,6 +682,8 @@ def get_status():
 
         for key, value in fdict.items():
             text += "{0} {1}".format(key,value) + "\n"
+        if "WIN_PROGRESS" in globals():
+            text += "{0} {1}%\n".format(num_to_scale((globals()["WIN_PROGRESS"]*100), 19), round(globals()["WIN_PROGRESS"]*100, 2))
         text += LANG["time_to_win"] + time_delta_rus(time_to_win) + " ("+str(percent_in_day)+"%)\n"
     Stat = {"Final_file_size": [], "Total_time": [],"Copy_time": [], "AVG_Final_file_size":0, "AVG_Total_time":0, "AVG_Copy_time":0, "AVG_time_per_Gb": 0, "space_left":0}
     dir_plots = []
@@ -726,12 +751,12 @@ def get_status():
     text += "<b>"+LANG["now_plots"]+"</b>\n"
 
     for dirp, progp in zip(dir_plots, progress_plots):
-        text = text + dirp+"\n"+num_to_scale((progp/num_string_100*100), 20)+" "+str(round(progp/num_string_100*100))+"%\n"
+        text = text + dirp+"\n"+num_to_scale((progp/num_string_100*100), 19)+" "+str(round(progp/num_string_100*100))+"%\n"
     try:
         Stat["AVG_Final_file_size"] = sum(Stat["Final_file_size"]) / len(Stat["Final_file_size"])
         Stat["AVG_Total_time"] = sum(Stat["Total_time"]) / len(Stat["Total_time"])
         Stat["AVG_Copy_time"] = sum(Stat["Copy_time"]) / len(Stat["Copy_time"])
-        Stat["AVG_time_per_Gb"] = (Stat["AVG_Total_time"]+Stat["AVG_Copy_time"]) / (Stat["AVG_Final_file_size"] * (1.024**3))
+        Stat["AVG_time_per_Gb"] = (Stat["AVG_Total_time"]+Stat["AVG_Copy_time"]) / (Stat["AVG_Final_file_size"])
         text = text + "{0} {1} ".format(LANG["avg_time"], str(datetime.timedelta(seconds=round(Stat["AVG_time_per_Gb"])))) + "\n"
     except(ZeroDivisionError):
         pass
@@ -824,6 +849,15 @@ def disk_info():
         temperature = ""
         dev = re.findall(r"\D+", key)[0]
         if not dev in prev_disks:
+            #HDDTEMP
+            # p = subprocess.Popen(['sudo', '-S', 'hddtemp', dev, '--numeric', '--quiet'], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            # cli = p.communicate(sudo_password + '\n')[0]
+            # try:
+            #     temperature = int(cli)   
+            # except(ValueError):
+            #     pass
+            # prev_disks[dev] = temperature
+            #smartctl
             p = subprocess.Popen(['sudo', '-S', 'smartctl', '-A', '-j', dev], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
             cli = p.communicate(sudo_password + '\n')[0]
             try:
@@ -1538,7 +1572,8 @@ def mpb(query, param=""):
         return(retur)
     #size
     if not "-z " in que and "-s " in que:
-        text = ""
+        if "text" not in locals():
+            text = ""
         plot_list = plots_on_disk(que["-s "])
         dig = 0
         for key, value in plot_list.items():
@@ -1578,9 +1613,11 @@ def mpb(query, param=""):
             return(retur)
         if dig == 1:
             que["-z "] = str(size)
+            globals()['Q_for_move_plot_button'].get_nowait()
             for key, value in plot_list.items():
                 if key.isdigit():
                     text += "{0} {1} {2} k{3}\n".format(LANG["find"], value, LANG["plots"], key)
+            globals()['Q_for_move_plot_button'].put(que)
 
 
     if not "-n " in que and "-z " in que and "-s " in que:
@@ -1625,7 +1662,8 @@ def mpb(query, param=""):
         return(retur)
 
     if not "-d " in que:
-        text = ""
+        if "text" not in locals():
+            text = ""
         for key in parameters:
             if key in que:
                 text += key+": "+que[key]+"\n"
@@ -1679,6 +1717,8 @@ def mpb(query, param=""):
 
 
     if "-s " in que and "-n " in que and "-z " in que and "-d " in que:
+        if "text" not in locals():
+            text = ""
         if param == "yes":
             patch = "python3 "+SCRIPT_DIR+"/plot_move.py"
             for key, value in que.items():
@@ -1694,7 +1734,7 @@ def mpb(query, param=""):
             text = LANG["moving"]+"\n"+LANG["will_send_notify"]+"\n"
             keyboard = []
         else:
-            text = "{0} {1}\n{2} {3}\n{4} k{5}\n{6} {7}\n{8}\n".format(LANG["from"], que["-s "], LANG["to"], que["-d "], 
+            text += "{0} {1}\n{2} {3}\n{4} k{5}\n{6} {7}\n{8}\n".format(LANG["from"], que["-s "], LANG["to"], que["-d "], 
                                                                                         LANG["size"], que["-z "], LANG["num"], que["-n "], LANG["will_move"])
             keyboard = [[InlineKeyboardButton("Да", callback_data='mpb(q, "yes")'), InlineKeyboardButton("Отмена", callback_data='mpb(q, "no")')]]
             globals()['Q_for_move_plot_button'].put(que)
@@ -1926,8 +1966,8 @@ def num_act_plots(table=None):
     return(dict)
 
 def choose_plot_size(free):
-    k32 = 101.4*(1024**3)
-    k33 = 208.8*(1024**3)
+    k32 = PLOTS_SIZES[32]*K
+    k33 = PLOTS_SIZES[33]*K
     num_k32 = free // k32
     num_k33 = 1 + (free // k33)
 
@@ -1988,8 +2028,13 @@ def plot_manager():
                     for patch in Disk_list.keys():
                         was_dest = False
                         if "free" in locals(): del(free)
-                        #Проверим сеется ли что-то на диск
+                        #Проверим сеется ли что-то на диск или копируется
                         for plot in all_plots:
+                            #При копировании, не будем на него сеять
+                            if plot.__class__.__name__ == "Plots":
+                                if patch in plot.dest:
+                                    bad_patch.append(patch)
+                                    continue
                             if plot.__class__.__name__ == "Plot":
                                 if plot.temp == patch:
                                     bad_patch.append(patch)
@@ -2057,6 +2102,19 @@ def plot_manager():
                                         if plot.temp == patch or plot.dest == patch:
                                             busy_sata.append(patch)
                                 if patch not in busy_sata: temp = patch
+                            #Если сам на себя не может, поищем другую САТА там где совпадают названия
+                            if not temp:
+                                for patch, free in Disk_list.items():
+                                    if re.search(r"[Ss][Aa][Tt][Aa]", patch) and re.search(r"(\d+_\d+)", patch) and re.search(r"(\d+_\d+)", list(plots_sizes_sorted)[i]):
+                                        if re.findall(r"(\d+_\d+)", patch)[0] == re.findall(r"(\d+_\d+)", list(plots_sizes_sorted)[i])[0]:
+                                            busy_sata = []                        
+                                            for plot in all_plots:
+                                                if plot.__class__.__name__ == "Plot":
+                                                    if plot.temp == patch or plot.dest == patch:
+                                                        busy_sata.append(patch)
+                                            if (free - PLOTS_SIZES_PLOTTING[size] * K - PLOTS_SIZES[size] * K) >= 0 and patch not in busy_sata and (list(plots_sizes_sorted)[i] != patch and que["SATA_AS_SSD"] == "yes"):
+                                                temp = patch
+                                                break
                             #Если сам на себя не может, поищем другую САТА
                             if not temp:
                                 for patch, free in Disk_list.items():
@@ -2309,40 +2367,51 @@ def plot_manager():
 
 
 #*************************************************************************************************************************
-def not_sleep(it):
+def not_sleep():
     while True:
-        start_time = datetime.datetime.now()
-        Disk_list = disk_list(CONFIG_DICT["MIN_DISK_TOTAL"]*1000000000, 1)
+        devices = disk_list(CONFIG_DICT["MIN_DISK_TOTAL"]*1000000000)
+        prev_disks = []
+        for dev_num in devices.keys():
+            if dev_num == "/":
+                continue
+            dev = re.findall(r"\D+", dev_num)[0]
+            if not dev in prev_disks:
+                prev_disks.append(dev)
+                command = ("sudo smartctl -g apm "+dev).split()
+                p = subprocess.Popen(command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
 
-        i = 0
-        while i < it:
-                for key in Disk_list.keys():
-                        if key == "/":
-                                continue
-                        try:
-                                f = open(key+"/sleep.txt")
-                                log = f.read()
-                        except(FileNotFoundError):
-                                f = open(key+"/sleep.txt", 'w')
-                                log = ""
-                        
-                        
-                        if log.count("\n") > 1000:
-                                f = open(key+"/sleep.txt", 'w')
-                        else:
-                                f = open(key+"/sleep.txt", 'a')
-                                f.write(str(datetime.datetime.now()-start_time)+"\n")
-                                f.close()
-                i += 1
+        start_time = datetime.datetime.now()
+        for dev_num, val in devices.items():
+            dev = re.findall(r"\D+", dev_num)[0]
+            if dev in HAVNT_SMART:
+                if val[4] == "/":
+                    continue
+                try:
+                    f = open(val[4]+"/sleep.txt")
+                    log = f.read()
+                except(FileNotFoundError):
+                    f = open(val[4]+"/sleep.txt", 'w')
+                    log = ""
+                
+                if log.count("\n") > 1000:
+                    f = open(val[4]+"/sleep.txt", 'w')
+                else:
+                    f = open(val[4]+"/sleep.txt", 'a')
+                    f.write(str(datetime.datetime.now()-start_time)+"\n")
+                f.close()
         time.sleep(60)
 def smartdog():  #Отслеживаем изменение SMART дисков
     famous__smart_attr = ["Raw_Read_Error_Rate",
+                        "Power_Cycle_Count",
                         "Reallocated_Sector_Ct",
                         "Seek_Error_Rate",
                         "Spin_Retry_Count",
                         "Helium_Condition_Lower",
                         "Helium_Condition_Upper",
                         "G-Sense_Error_Rate",
+                        "Power-Off_Retract_Count",
+                        "Load_Cycle_Count",
                         "Reallocated_Event_Count",
                         "Current_Pending_Sector",
                         "Offline_Uncorrectable",
@@ -2351,7 +2420,7 @@ def smartdog():  #Отслеживаем изменение SMART дисков
     disk_smart_dict ={}
     while (True):
         now = datetime.datetime.now()
-        if now.hour == 10 or not disk_smart_dict:
+        if now.hour == 0 or not disk_smart_dict:
             devices = disk_list(CONFIG_DICT["MIN_DISK_TOTAL"]*1000000000)
             prev_disks = []
             for dev_num, val in devices.items():
@@ -2374,13 +2443,15 @@ def smartdog():  #Отслеживаем изменение SMART дисков
                                         text = "Диск {0} ({1}), изменилось относительное значение {2} с {3} на {4}. Порог: {5}".format(dev, val[4], attr["name"], disk_smart_dict[dev][attr["name"]]["value"], attr["value"], attr["thresh"])
                                         message_to_all(text, True)
                                         disk_smart_dict[dev][attr["name"]]["value"] = attr["value"]
-                                    if disk_smart_dict[dev][attr["name"]]["raw"] < 100 and disk_smart_dict[dev][attr["name"]]["raw"] != attr["raw"]["value"]:
+                                    if disk_smart_dict[dev][attr["name"]]["raw"] < 1000 and disk_smart_dict[dev][attr["name"]]["raw"] != attr["raw"]["value"]:
                                         text = "Диск {0} ({1}), изменилось абсолютное значение {2} с {3} на {4}".format(dev, val[4], attr["name"], disk_smart_dict[dev][attr["name"]]["raw"], attr["raw"]["value"])
                                         message_to_all(text, True)
                                         disk_smart_dict[dev][attr["name"]]["raw"] = attr["raw"]["value"]
                                 else: disk_smart_dict[dev][attr["name"]] = {"value":attr["value"], "raw":attr["raw"]["value"]}
-                    else: 
+                    else:
+                        HAVNT_SMART.append(dev)
                         print("Диск {0} havn't smart data".format(dev))
+
             time.sleep(3600)
 
         time.sleep(1700)
@@ -2488,6 +2559,14 @@ def watchdog():
                     stat["Plot count for all harvesters: "] = int(re.findall(r"Plot count for all harvesters: (\d+)", cli)[0])
                     if not plot_count_all_harvesters or plot_count_all_harvesters <= stat["Plot count for all harvesters: "]:
                         globals()["plot_count_all_harvesters"] = stat["Plot count for all harvesters: "]
+                    #Посчитаем сколько осталось до выигрыша
+                    convert = {"M":1*10**12, "G":1*10**9, "T":1*10**6, "P":1*10**3, "E":1}
+                    total_size_of_plots = re.findall(r"Total size of plots: (\d*.\d*)\s([MGTPE])iB", cli)
+                    net_space = re.findall(r"Estimated network space: (\d*.\d*)\s([MGTPE])iB", cli)
+                    sec_to_win = round((1/((float(total_size_of_plots[0][0])/convert[total_size_of_plots[0][1]])/(float(net_space[0][0])/convert[net_space[0][1]]) * 4608))*3600*24)
+                    partial_to_win = CONFIG_DICT["WD_INTERVAL"] / sec_to_win
+                    if "WIN_PROGRESS" in globals(): globals()["WIN_PROGRESS"] += partial_to_win
+                    else: globals()["WIN_PROGRESS"] = partial_to_win
                 except(IndexError):
                     stat["Sync status: "] = "None"
                     stat["Farming status: "] = "None"
@@ -2779,6 +2858,27 @@ def harvester_restart(arg=None):
         retur = {"text":text}
         return(retur)
 
+def set_win_progress(arg=None):
+    if arg:
+        try:
+            arg = float(arg)
+        except(ValueError):
+            text = LANG["type"]+'/set_win_progress <float>'
+            retur = {"text":text}
+            return(retur)
+        if arg < 0:
+            text = LANG["num_must_be_posit"]
+            retur = {"text":text}
+            return(retur)
+        globals()["WIN_PROGRESS"] = arg/100
+        text = "{0} {1}%\n".format(num_to_scale(arg, 19), round(arg, 2))
+        retur = {"text":text}
+        return(retur)
+    else:
+        text = LANG["for_set_win_progress"]
+        retur = {"text":text}
+        return(retur)
+
 def reply_message(update, text, reply_markup=None):
     if update['message']['chat']['id'] in MESSAGES and MESSAGES[update['message']['chat']['id']]:
         globals()["MESSAGES"][update['message']['chat']['id']].edit_reply_markup(reply_markup=None)
@@ -2905,11 +3005,12 @@ def my_command_handler(update: Update, context: CallbackContext):
                         '/filter':'set_filter(arg="'+arg+'", chat_id='+chat_id+')',
                         '/log':'show_log("'+arg+'")',
                         '/set_plot_config':'set_plot_config("'+arg+'")',
+                        '/set_win_progress':'set_win_progress("'+arg+'")',
                         '/check_plots_dirs':'check_plots_dirs("'+arg+'")',
                         '/pl':'power_limit("'+arg+'")',
                         '/harvester_restart':'harvester_restart("'+arg+'")',
                         '/auto_power':'auto_power_start(min="'+arg+'", max="'+arg2+'", chat_id='+chat_id+')',
-                        '/restart':'restart()',}
+                        '/restart':'restart()'}
         command_dict.update(command_dict_without_arg)
         print(update.message.chat.first_name+"---->"+command+" "+arg)
         if int(context.user_data["farm"]) == 1:
@@ -2969,11 +3070,13 @@ def main() -> None:
     updater.dispatcher.add_handler(CommandHandler("filter", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("log", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("set_plot_config", my_command_handler, USERS_FILTER))
+    updater.dispatcher.add_handler(CommandHandler("set_win_progress", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("check_plots_dirs", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("pl", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("harvester_restart", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("auto_power", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("restart", my_command_handler, USERS_FILTER))
+
     # Start the Bot
     updater.start_polling()
 
@@ -3040,11 +3143,13 @@ def plots_check_time(log):
             f.write(log)
             f.close()
 
-    if "send_coin_at" in globals() and datetime.datetime.now() - globals()["send_coin_at"] < datetime.timedelta(seconds=100): pass   
+    if "send_coin_at" in globals() and datetime.datetime.now() - globals()["send_coin_at"] < datetime.timedelta(seconds=300): pass   
     else:
         matches = re.findall(r"Adding coin: {'amount': (\d+)", log)
         if matches:
             message_to_all("{0} {1}".format(LANG["wallet_in"], float(matches[0])/1000000000000), None)
+
+            if round(float(matches[0])/1000000000000, 2) == 0.25 or round(float(matches[0])/1000000000000) == 2: globals()["WIN_PROGRESS"] = 0
 
             cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
             convert = {"M":1, "G":1*10**3, "T":1*10**6, "P":1*10**9, "E":1*10**12}
@@ -3065,7 +3170,7 @@ def plots_check_time(log):
                     bds_money = round(bds_money, 6)
                     cli1 = "no transaction"
                     cli2 = "no transaction"
-                    other_money = round(((float(matches[0])/1000000000000) - bds_money - 0.001), 6)
+                    other_money = round(((float(matches[0])/1000000000000) - bds_money - 0.000001), 6)
                     if bds_money > 0.01:
                         cli1 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_BDS89"])).read()
                     if "XCH_ADDR_OTHER" in CONFIG_DICT and other_money > 0.01:
@@ -3162,11 +3267,28 @@ def del_trash():
     os.remove(CONFIG_DICT["PLOTS_FILE"])
 
 def mqtt_on_message(client, userdata, message):
-    globals()["MQTT_dict"][CONFIG_DICT["MQTT"]["TOPICS"][message.topic]] = json.loads(message.payload)
+    try:
+        globals()["MQTT_dict"][CONFIG_DICT["MQTT"]["TOPICS"][message.topic]] = json.loads(message.payload)
+    except: pass 
 def mqtt(topics, host, username, password):
     topics_list = list(topics)
     subscribe.callback(mqtt_on_message, topics_list, hostname=host, auth = {'username':username, 'password':password})
 
+def set_APM():
+    sudo_password = CONFIG_DICT["SUDO_PASS"]
+    devices = disk_list(CONFIG_DICT["MIN_DISK_TOTAL"]*1000000000)
+    prev_disks = []
+    for dev_num in devices.keys():
+        dev = re.findall(r"\D+", dev_num)[0]
+        if not dev in prev_disks:
+            prev_disks.append(dev)
+            command = ("sudo -S hdparm -B 254 -S 0 "+dev).split()
+            p = subprocess.Popen(command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            cli = p.communicate(sudo_password + '\n')[0]
+            if "not supported" in cli:
+                HAVNT_SMART.append(dev)
+                print("{}: not supported".format(dev))
+            else: print("{}: 254".format(dev))
 
 if __name__ == '__main__':
     param = sys.argv
@@ -3188,7 +3310,7 @@ if __name__ == '__main__':
     plot_count = None
 
     K = 1024**3
-    PLOTS_SIZES = {25:0.6, 32:101.4, 33:208.8, 34:429.8, 35:884.1}
+    PLOTS_SIZES = {25:0.6, 32:101.375, 33:208.86, 34:429.8, 35:884.1}
     PLOTS_SIZES_PLOTTING = {25:1.8, 32:239, 33:521, 34:1041, 35:2175}
 
     FILTER_CHAT_IDS = {}
@@ -3202,6 +3324,7 @@ if __name__ == '__main__':
 
     plot_count_all_harvesters = 0
 
+    HAVNT_SMART = []
     try:
         if param[1] != "-s":
             message_to_all(LANG["start_bot"], True)
@@ -3226,7 +3349,7 @@ if __name__ == '__main__':
             
         del_trash()
         message_to_all(LANG["start_bot"], True)
-
+    set_APM()
     threading.Thread(target=cpu_use).start() #запускаем опрос загрузки cpu
 
     Process(target=plot_manager).start()
@@ -3259,7 +3382,7 @@ if __name__ == '__main__':
     
     threading.Thread(target=LogParser, args=(CONFIG_DICT["LOGPATCH"],)).start()  #читаем логи
     # Process(target=app.run(host='0.0.0.0')).start()     -Flask
-    threading.Thread(target=not_sleep, args=(1,)).start()  #not_sleep
+    threading.Thread(target=not_sleep).start()  #not_sleep
     threading.Thread(target=watchdog).start()  #WatchDog
     threading.Thread(target=smartdog).start()  #SmartDog
     # проверим есть ли драйвера nvidia
