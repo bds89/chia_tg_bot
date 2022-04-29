@@ -1,3 +1,4 @@
+from distutils.command.install import HAS_USER_SITE
 import logging, re, os, json, yaml, datetime, psutil, time, sys, pickle, socket, threading, subprocess, urllib.request, ccxt, math, requests
 import paho.mqtt.subscribe as subscribe
 import paho.mqtt.publish as publish
@@ -46,7 +47,7 @@ def socket_server(port):
     while True:
         mySocket.listen(1)
         conn, addr = mySocket.accept()
-        print ("Connection from: " + str(addr[0]))
+        # print ("Connection from: " + str(addr[0]))
         try: data = pickle.loads(conn.recv(2048))
         except: data = "error_data"
         safety_addr = False
@@ -62,7 +63,7 @@ def socket_server(port):
         if type(data) is dict:
             q = data["q"]
             data = data["data"]
-        print ("from connected  user: " + str(data))
+        # print ("from connected  user: " + str(data))
         if data == "error_data":
             conn.sendall({"text": "Not received data(server error)\n"})
         else:
@@ -386,6 +387,13 @@ def get_balance():
     for key, value in fdict.items():
         text = text + "{0} {1}".format(key,value) + "\n"
 
+    # user bal
+    if "WRITE_BALANCES" in CONFIG_DICT and CONFIG_DICT["WRITE_BALANCES"] == True and os.path.exists(MONEY_PATCH):
+        with open(MONEY_PATCH) as f:
+            money = yaml.load(f.read(), Loader=yaml.FullLoader)
+    else:
+        money = {"bds89":0, "other":0}
+
     if CONFIG_DICT["API_KEY_COINMARKETCUP"]:
         url = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest'
         parameters = {'id':'9258'}
@@ -400,17 +408,29 @@ def get_balance():
 
             chia_price_usd = float(data["data"]["9258"]["quote"]["USD"]["price"])
             chia_percent_change_24h = float(data["data"]["9258"]["quote"]["USD"]["percent_change_24h"])
-            result = re.findall(r"Total Balance: ([0-9.e-]*)", cli)[0]
-            XCH_balance = float(result)
-            if CONFIG_DICT["LANGUAGE"] == "russian":
-                url = "https://www.cbr-xml-daily.ru/daily_json.js"
-                r = get(url)
-                USD_price = float(r.json()["Valute"]["USD"]["Value"])
-                text = text+"{0} XCH * {1}$({2}%) * {3}₽ = {0} * {4} = {5} ₽\n".format(XCH_balance, round(chia_price_usd,2), round(chia_percent_change_24h), round(USD_price,2), 
-                round(chia_price_usd*USD_price), 
-                round(XCH_balance*chia_price_usd*USD_price))
-            else:
-                text = text+"{0} XCH * {1}$({2}%) = {3} $\n".format(XCH_balance, round(chia_price_usd,2), round(chia_percent_change_24h), round(XCH_balance*chia_price_usd,2))
+            result = re.findall(r"-Total Balance:\s+(\d+[.]\d+) xch", cli)
+            if result: 
+                result = result[0]
+                XCH_balance = float(result)
+                if CONFIG_DICT["LANGUAGE"] == "russian":
+                    url = "https://www.cbr-xml-daily.ru/daily_json.js"
+                    r = get(url)
+                    USD_price = float(r.json()["Valute"]["USD"]["Value"])
+                    # all balance
+                    text = text+"{0} XCH * {1}$({2}%) * {3}₽ = {0} * {4} = {5} ₽\n".format(round(XCH_balance, 6), round(chia_price_usd,2), round(chia_percent_change_24h), round(USD_price,2), 
+                    round(chia_price_usd*USD_price), 
+                    round(XCH_balance*chia_price_usd*USD_price))
+                    # bds89 balance
+                    text += "bds89:\n{0} XCH = {1} ₽\n".format(round(money["bds89"], 6), round(money["bds89"]*chia_price_usd*USD_price))
+                    # other balance
+                    text += "other:\n{0} XCH = {1} ₽\n".format(round(money["other"], 6), round(money["other"]*chia_price_usd*USD_price))
+                else:
+                    # all balance
+                    text = text+"{0} XCH * {1}$({2}%) = {3} $\n".format(round(XCH_balance, 6), round(chia_price_usd,2), round(chia_percent_change_24h), round(XCH_balance*chia_price_usd,2))
+                    # bds89 balance
+                    text += "bds89:\n{0} XCH = {1} $\n".format(round(money["bds89"], 6), round(money["bds89"]*chia_price_usd,2))
+                    # other balance
+                    text += "other:\n{0} XCH = {1} $\n".format(round(money["other"], 6), round(money["other"]*chia_price_usd,2))
         except (ValueError, ConnectionError, Timeout, TooManyRedirects) as e:
             print(e)
 
@@ -660,8 +680,8 @@ def get_status():
         text += "<b>Chia status:</b>\n"
         flist = ['Farming status: ','Total chia farmed: ','Block rewards: ','Plot count for all harvesters: ','Total size of plots: ','Estimated network space: ','Expected time to win: ']
         fdict = {}
-        cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet show').read()
-        cli = cli + os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
+        # cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet show').read()
+        cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
         # cli_remote = [0, 0]
         convert = {"M":1*10**12, "G":1*10**9, "T":1*10**6, "P":1*10**3, "E":1}
         try:
@@ -682,9 +702,10 @@ def get_status():
 
         for key, value in fdict.items():
             text += "{0} {1}".format(key,value) + "\n"
-        if "WIN_PROGRESS" in globals():
+        if "WIN_PROGRESS" in globals() and "WIN_reGRESS" in globals():
             text += "{0} {1}%\n".format(num_to_scale((globals()["WIN_PROGRESS"]*100), 19), round(globals()["WIN_PROGRESS"]*100, 2))
-        text += LANG["time_to_win"] + time_delta_rus(time_to_win) + " ("+str(percent_in_day)+"%)\n"
+            text += "{0}{1} ({2}%)\n".format(LANG["time_to_win"], time_delta_rus(time_to_win), round((1-globals()["WIN_reGRESS"])*100,2))
+
     Stat = {"Final_file_size": [], "Total_time": [],"Copy_time": [], "AVG_Final_file_size":0, "AVG_Total_time":0, "AVG_Copy_time":0, "AVG_time_per_Gb": 0, "space_left":0}
     dir_plots = []
     progress_plots = []
@@ -2379,7 +2400,12 @@ def not_sleep():
                 prev_disks.append(dev)
                 command = ("sudo smartctl -g apm "+dev).split()
                 p = subprocess.Popen(command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-                p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
+                cli = p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
+                if "APM level is" in cli and not "254" in cli:
+                    command = ("sudo -S hdparm -B 254 -S 0 "+dev).split()
+                    p = subprocess.Popen(command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                    p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
+                    print("sudo -S hdparm -B 254 -S 0 "+dev)
 
         start_time = datetime.datetime.now()
         for dev_num, val in devices.items():
@@ -2550,8 +2576,62 @@ def watchdog():
                     message_to_all(text, True)
                 globals()["check_plotting_progress"]["time"] = datetime.datetime.now()
             if CONFIG_DICT["FULL_NODE"]:
-                cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet show').read()
+                cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet show').read()             
                 cli = cli + os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
+                #check balance
+                new_balance = re.findall(r"-Total Balance:\s+(\d+[.]\d+) xch", cli)
+                if new_balance:
+                    new_balance = float(new_balance[0])
+                    print("New Balance: "+str(new_balance))
+                    if "old_balance" in locals():
+                        if new_balance > old_balance:
+                            adding_value = new_balance - old_balance
+                            old_balance = new_balance
+                            print("Balance changed: +"+str(adding_value))
+                            message_to_all("{0} {1}".format(LANG["wallet_in"], adding_value, None), None)
+                            if round(adding_value) == 0.25 or round(adding_value) == 1.75:
+                                globals()["WIN_PROGRESS"] = 0
+                                globals()["WIN_reGRESS"] = 0
+                            
+                            convert = {"M":1, "G":1*10**3, "T":1*10**6, "P":1*10**9, "E":1*10**12}
+
+                            shared_names = ["Local Harvester", "Remote Harvester for IP: 212.75.234.213"]
+                            try:
+                                start = cli.index("Local Harvester")
+                                end = cli.index("Estimated network space") -1
+                                total_size_of_plots = re.findall(r"Total size of plots: (\d*.\d*)\s([MGTPE])iB", cli)
+                                size_of_plots = re.findall(r"(.*Harvester.*)\n.*\d+ plots of size: (\d*.\d*)\s([MGTPE])iB", cli)
+
+                                share_size = 0
+                                for string in size_of_plots:
+                                    if string[0] in shared_names: share_size += float(string[1])*convert[string[2]]
+                                bds_money = (share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]]))*adding_value/3 + (1-(share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]])))*adding_value
+                                bds_money = round(bds_money, 6)
+                                cli1 = "no transaction"
+                                cli2 = "no transaction"
+                                other_money = round((adding_value - bds_money - 0.000001), 6)
+                                if "XCH_ADDR_BDS89" in CONFIG_DICT and bds_money > 0.01:
+                                    cli1 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_BDS89"])).read()
+                                if "XCH_ADDR_OTHER" in CONFIG_DICT and other_money > 0.01:
+                                    time.sleep(2)
+                                    cli2 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
+                                # write to file, if havn't adresses
+                                if "WRITE_BALANCES" in CONFIG_DICT and CONFIG_DICT["WRITE_BALANCES"] == True:
+                                    if not "XCH_ADDR_BDS89" in CONFIG_DICT and not "XCH_ADDR_OTHER" in CONFIG_DICT:
+                                        if os.path.exists(MONEY_PATCH):
+                                            with open(MONEY_PATCH) as f:
+                                                money = yaml.load(f.read(), Loader=yaml.FullLoader)
+                                        else:
+                                            money = {"bds89":0, "other":0}
+                                        money["bds89"] += bds_money
+                                        money["other"] += other_money
+                                        with open(MONEY_PATCH, "w") as f:
+                                            f.write(yaml.dump(money, sort_keys=False))
+                                message_to_all("{0} {1}\n{2}\n{3} {4}\n{5}\nINFO:\n{6}".format("bds89: ", bds_money, cli1, "other: ", other_money, cli2, cli[start:end]), None)
+                            except: print("Error in change balance")
+                            
+                    else: old_balance = new_balance
+
                 stat = {}
                 try:
                     stat["Sync status: "] = re.findall(r"Sync status: (.+)", cli)[0]
@@ -2567,6 +2647,9 @@ def watchdog():
                     partial_to_win = CONFIG_DICT["WD_INTERVAL"] / sec_to_win
                     if "WIN_PROGRESS" in globals(): globals()["WIN_PROGRESS"] += partial_to_win
                     else: globals()["WIN_PROGRESS"] = partial_to_win
+
+                    if "WIN_reGRESS" in globals(): globals()["WIN_reGRESS"] = globals()["WIN_reGRESS"]*(1-partial_to_win)
+                    else: globals()["WIN_reGRESS"] = (1-partial_to_win)
                 except(IndexError):
                     stat["Sync status: "] = "None"
                     stat["Farming status: "] = "None"
@@ -2858,6 +2941,30 @@ def harvester_restart(arg=None):
         retur = {"text":text}
         return(retur)
 
+def change_pool(arg=None):
+    if arg:
+        try:
+            arg = int(arg)
+            if arg == 0:
+                p = subprocess.Popen(['/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia plotnft leave -i 2'], shell=True, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                text = p.communicate("y" + '\n')[0]
+                retur = {"text":text}
+                return(retur)
+        except(ValueError):
+            if arg == "https://pool-ru.sweetchia.com" or arg == "https://eu1.pool.space":
+                p = subprocess.Popen(['/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia plotnft join -i 2 -u '+arg], shell=True, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                text = p.communicate("y" + '\n')[0]
+                retur = {"text":text}
+                return(retur)
+            else:
+                text = LANG["type"]+'/pool <string> (pool adress or 0)'
+                retur = {"text":text}
+                return(retur)
+    else:
+        text = LANG["type"]+'/pool <string> (pool adress or 0)'
+        retur = {"text":text}
+        return(retur)
+
 def set_win_progress(arg=None):
     if arg:
         try:
@@ -2871,7 +2978,19 @@ def set_win_progress(arg=None):
             retur = {"text":text}
             return(retur)
         globals()["WIN_PROGRESS"] = arg/100
-        text = "{0} {1}%\n".format(num_to_scale(arg, 19), round(arg, 2))
+
+        cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
+        try:
+            #Посчитаем сколько осталось до выигрыша
+            convert = {"M":1*10**12, "G":1*10**9, "T":1*10**6, "P":1*10**3, "E":1}
+            total_size_of_plots = re.findall(r"Total size of plots: (\d*.\d*)\s([MGTPE])iB", cli)
+            net_space = re.findall(r"Estimated network space: (\d*.\d*)\s([MGTPE])iB", cli)
+            sec_to_win = round((1/((float(total_size_of_plots[0][0])/convert[total_size_of_plots[0][1]])/(float(net_space[0][0])/convert[net_space[0][1]]) * 4608))*3600*24)
+            partial_to_win = CONFIG_DICT["WD_INTERVAL"] / sec_to_win
+
+            globals()["WIN_reGRESS"] = (1-partial_to_win)**(globals()["WIN_PROGRESS"] / partial_to_win)
+            text = "{0} {1}%\n{2} {3}%\n".format(num_to_scale(arg, 19), round(arg, 2), num_to_scale((1-globals()["WIN_reGRESS"])*100, 19), round((1-globals()["WIN_reGRESS"])*100, 2))
+        except: text = "error"
         retur = {"text":text}
         return(retur)
     else:
@@ -3008,6 +3127,7 @@ def my_command_handler(update: Update, context: CallbackContext):
                         '/set_win_progress':'set_win_progress("'+arg+'")',
                         '/check_plots_dirs':'check_plots_dirs("'+arg+'")',
                         '/pl':'power_limit("'+arg+'")',
+                        '/pool':'change_pool("'+arg+'")',
                         '/harvester_restart':'harvester_restart("'+arg+'")',
                         '/auto_power':'auto_power_start(min="'+arg+'", max="'+arg2+'", chat_id='+chat_id+')',
                         '/restart':'restart()'}
@@ -3073,6 +3193,7 @@ def main() -> None:
     updater.dispatcher.add_handler(CommandHandler("set_win_progress", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("check_plots_dirs", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("pl", my_command_handler, USERS_FILTER))
+    updater.dispatcher.add_handler(CommandHandler("pool", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("harvester_restart", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("auto_power", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("restart", my_command_handler, USERS_FILTER))
@@ -3095,9 +3216,10 @@ def LogParser(logpatch):
                     log_time = re.findall(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}", line)
                     if log_time:
                         log_time_timestam = datetime.datetime.strptime(log_time[0], "%Y-%m-%dT%H:%M:%S.%f")
-                        if log_time_timestam > log_time_old:
+                        if log_time_timestam >= log_time_old:
                             plots_check_time(line)
                             log_time_old = log_time_timestam
+                    else: plots_check_time(line)
         time.sleep(5)
 
 def plots_check_time(log):
@@ -3143,44 +3265,58 @@ def plots_check_time(log):
             f.write(log)
             f.close()
 
-    if "send_coin_at" in globals() and datetime.datetime.now() - globals()["send_coin_at"] < datetime.timedelta(seconds=300): pass   
-    else:
-        matches = re.findall(r"Adding coin: {'amount': (\d+)", log)
-        if matches:
-            message_to_all("{0} {1}".format(LANG["wallet_in"], float(matches[0])/1000000000000), None)
+    # if "send_coin_at" in globals() and datetime.datetime.now() - globals()["send_coin_at"] < datetime.timedelta(seconds=300): pass   
+    # else:
+    #     matches = re.findall(r"Adding coin: {'amount': (\d+)", log)
+    #     if matches:
+    #         message_to_all("{0} {1}".format(LANG["wallet_in"], float(matches[0])/1000000000000), None)
 
-            if round(float(matches[0])/1000000000000, 2) == 0.25 or round(float(matches[0])/1000000000000) == 2: globals()["WIN_PROGRESS"] = 0
+    #         if round(float(matches[0])/1000000000000, 2) == 0.25 or round(float(matches[0])/1000000000000) == 2: globals()["WIN_PROGRESS"] = 0
 
-            cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
-            convert = {"M":1, "G":1*10**3, "T":1*10**6, "P":1*10**9, "E":1*10**12}
+    #         cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
+    #         convert = {"M":1, "G":1*10**3, "T":1*10**6, "P":1*10**9, "E":1*10**12}
 
-            shared_names = ["Local Harvester", "Remote Harvester for IP: 212.75.234.213"]
+    #         shared_names = ["Local Harvester", "Remote Harvester for IP: 212.75.234.213"]
+    #         try:
+    #             start = cli.index("Local Harvester")
+    #             end = cli.index("Estimated network space") -1
+    #             total_size_of_plots = re.findall(r"Total size of plots: (\d*.\d*)\s([MGTPE])iB", cli)
+    #             size_of_plots = re.findall(r"(.*Harvester.*)\n.*\d+ plots of size: (\d*.\d*)\s([MGTPE])iB", cli)
 
-            if "XCH_ADDR_BDS89" in CONFIG_DICT:
-                try:
-                    start = cli.index("Local Harvester")
-                    end = cli.index("Estimated network space") -1
-                    total_size_of_plots = re.findall(r"Total size of plots: (\d*.\d*)\s([MGTPE])iB", cli)
-                    size_of_plots = re.findall(r"(.*Harvester.*)\n.*\d+ plots of size: (\d*.\d*)\s([MGTPE])iB", cli)
+    #             share_size = 0
+    #             for string in size_of_plots:
+    #                 if string[0] in shared_names: share_size += float(string[1])*convert[string[2]]
+    #             bds_money = (share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]]))*(float(matches[0])/1000000000000)/3 + (1-(share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]])))*(float(matches[0])/1000000000000)
+    #             bds_money = round(bds_money, 6)
+    #             cli1 = "no transaction"
+    #             cli2 = "no transaction"
+    #             other_money = round(((float(matches[0])/1000000000000) - bds_money - 0.000001), 6)
+    #             if "XCH_ADDR_BDS89" in CONFIG_DICT and bds_money > 0.01:
+    #                 cli1 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_BDS89"])).read()
+    #             if "XCH_ADDR_OTHER" in CONFIG_DICT and other_money > 0.01:
+    #                 time.sleep(2)
+    #                 cli2 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
+    #             # write to file, if havn't adresses
+    #             if "WRITE_BALANCES" in CONFIG_DICT and CONFIG_DICT["WRITE_BALANCES"] == True:
+    #                 if not "XCH_ADDR_BDS89" in CONFIG_DICT and not "XCH_ADDR_OTHER" in CONFIG_DICT:
+    #                     if os.path.exists(MONEY_PATCH):
+    #                         with open(MONEY_PATCH) as f:
+    #                             money = yaml.load(f.read(), Loader=yaml.FullLoader)
+    #                     else:
+    #                         money = {"bds89":0, "other":0}
+    #                     money["bds89"] += bds_money
+    #                     money["other"] += other_money
+    #                     with open(MONEY_PATCH, "w") as f:
+    #                         f.write(yaml.dump(money, sort_keys=False))
 
-                    share_size = 0
-                    for string in size_of_plots:
-                        if string[0] in shared_names: share_size += float(string[1])*convert[string[2]]
-                    bds_money = (share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]]))*(float(matches[0])/1000000000000)/3 + (1-(share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]])))*(float(matches[0])/1000000000000)
-                    bds_money = round(bds_money, 6)
-                    cli1 = "no transaction"
-                    cli2 = "no transaction"
-                    other_money = round(((float(matches[0])/1000000000000) - bds_money - 0.000001), 6)
-                    if bds_money > 0.01:
-                        cli1 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_BDS89"])).read()
-                    if "XCH_ADDR_OTHER" in CONFIG_DICT and other_money > 0.01:
-                        time.sleep(2)
-                        cli2 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
 
-                    message_to_all("{0} {1}\n{2}\n{3} {4}\n{5}\nINFO:\n{6}".format("bds89: ", bds_money, cli1, "other: ", other_money, cli2, cli[start:end]), None)
-                    globals()["send_coin_at"] = datetime.datetime.now()
-                except:
-                    pass
+
+
+    #             message_to_all("{0} {1}\n{2}\n{3} {4}\n{5}\nINFO:\n{6}".format("bds89: ", bds_money, cli1, "other: ", other_money, cli2, cli[start:end]), None)
+    #             globals()["send_coin_at"] = datetime.datetime.now()
+    #         except:
+    #             print("something wrong in send coin")
+    #             pass
     matches = re.findall(
                 r"Looking up qualities on (.+) took: (\d.\d+)", log
             )
@@ -3293,6 +3429,7 @@ def set_APM():
 if __name__ == '__main__':
     param = sys.argv
     CONFIG_PATCH = get_script_dir()+"/config.yaml"
+    MONEY_PATCH = get_script_dir()+"/money.yaml"
     with open(CONFIG_PATCH) as f:
         CONFIG_DICT = yaml.load(f.read(), Loader=yaml.FullLoader)
 
@@ -3386,13 +3523,13 @@ if __name__ == '__main__':
     threading.Thread(target=watchdog).start()  #WatchDog
     threading.Thread(target=smartdog).start()  #SmartDog
     # проверим есть ли драйвера nvidia
-    if "POWER_LIMIT" in CONFIG_DICT: pl = str(CONFIG_DICT["POWER_LIMIT"])
-    else: pl = str(151)
-    p = subprocess.Popen(['sudo', '-S', 'nvidia-smi', '-pl', pl], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-    cli = p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
-    if cli:
-        NVIDIA = 151
-    else: NVIDIA = None
+    if "POWER_LIMIT" in CONFIG_DICT: 
+        pl = str(CONFIG_DICT["POWER_LIMIT"])
+        p = subprocess.Popen(['sudo', '-S', 'nvidia-smi', '-pl', pl], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        cli = p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
+        if cli:
+            NVIDIA = 151
+        else: NVIDIA = None
     #Для фермы1
     if CONFIG_DICT["FULL_NODE"]:
         #добавим пользователей из конфига в разрешенные
