@@ -377,6 +377,7 @@ def get_balance():
     fdict = {}
 
     cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet show').read()
+    cli_fs = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
     for i in range(len(flist)):
         n=cli.find(flist[i])+len(flist[i])
         k=cli.find('\n', n)
@@ -421,16 +422,18 @@ def get_balance():
                     round(chia_price_usd*USD_price), 
                     round(XCH_balance*chia_price_usd*USD_price))
                     # bds89 balance
-                    text += "bds89:\n{0} XCH = {1} ₽\n".format(round(money["bds89"], 6), round(money["bds89"]*chia_price_usd*USD_price))
-                    # other balance
-                    text += "other:\n{0} XCH = {1} ₽\n".format(round(money["other"], 6), round(money["other"]*chia_price_usd*USD_price))
+                    if "WRITE_BALANCES" in CONFIG_DICT:
+                        text += "bds89:\n{0} XCH = {1} ₽\n".format(round(money["bds89"], 6), round(money["bds89"]*chia_price_usd*USD_price))
+                        # other balance
+                        text += "other:\n{0} XCH = {1} ₽\n".format(round(money["other"], 6), round(money["other"]*chia_price_usd*USD_price))
                 else:
                     # all balance
                     text = text+"{0} XCH * {1}$({2}%) = {3} $\n".format(round(XCH_balance, 6), round(chia_price_usd,2), round(chia_percent_change_24h), round(XCH_balance*chia_price_usd,2))
                     # bds89 balance
-                    text += "bds89:\n{0} XCH = {1} $\n".format(round(money["bds89"], 6), round(money["bds89"]*chia_price_usd,2))
-                    # other balance
-                    text += "other:\n{0} XCH = {1} $\n".format(round(money["other"], 6), round(money["other"]*chia_price_usd,2))
+                    if "WRITE_BALANCES" in CONFIG_DICT:
+                        text += "bds89:\n{0} XCH = {1} $\n".format(round(money["bds89"], 6), round(money["bds89"]*chia_price_usd,2))
+                        # other balance
+                        text += "other:\n{0} XCH = {1} $\n".format(round(money["other"], 6), round(money["other"]*chia_price_usd,2))
         except (ValueError, ConnectionError, Timeout, TooManyRedirects) as e:
             print(e)
 
@@ -499,8 +502,22 @@ def get_balance():
                     else: text += "{0}: {1} $ \n".format(name,bal)
         globals().pop("balances_okex")
         globals().pop("markets_okex")
-        globals().pop("usdt_exc_okex") 
+        globals().pop("usdt_exc_okex")
 
+
+    total_size_of_plots = re.findall(r"Total size of plots: (\d*.\d*)\s([MGTPE])iB", cli_fs)
+    net_space = re.findall(r"Estimated network space: (\d*.\d*)\s([MGTPE])iB", cli_fs)
+    if net_space and total_size_of_plots and "chia_price_usd" in locals() and "USD_price" in locals():
+        convert = {"M":(0.9765625**3)*(10**-9), "G":(0.9765625**2)*(10**-6), "T":0.9765625*(10**-3), "P":1, "E":1.024*(10**3)}
+
+        my_size = float(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]])
+        net_space = float(float(net_space[0][0]) * convert[net_space[0][1]])
+        XCHperPib = (my_size/net_space)*4608*2
+        USDTperPib = round(XCHperPib*float(chia_price_usd), 2)
+        RUBperPib = round(USDTperPib*float(USD_price), 2)
+
+        text += "<b>Day profit:</b>\n"
+        text += f"{round(XCHperPib, 5)} XCH, {USDTperPib} $, {RUBperPib} ₽\n"
 
         retur = {"text":text, "keyboard":keyboard}
     else: 
@@ -2582,9 +2599,9 @@ def watchdog():
                 new_balance = re.findall(r"-Total Balance:\s+(\d+[.]\d+) xch", cli)
                 if new_balance:
                     new_balance = float(new_balance[0])
-                    print("New Balance: "+str(new_balance))
                     if "old_balance" in locals():
                         if new_balance > old_balance:
+                            print("New Balance: "+str(new_balance))
                             adding_value = new_balance - old_balance
                             old_balance = new_balance
                             print("Balance changed: +"+str(adding_value))
