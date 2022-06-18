@@ -71,7 +71,7 @@ russian = {"chia_stat":"Статус Chia","get_balance":"Узнать бала�
         "filter_pass":"сек. Фильтр прошли:","wallet_in":"Пополнение кошелька на:","sec":"сек.",
         "no_plotted":"Ничего не сеялось","not_find_plot_file":"Не нашел файла с плотами","clear_plot":"Очистка плота:",
         "files_in":"файлов в","cant_dell_files_from":"Не смог удалить файлы из","dell_log_in":"Удалил лог файл в",
-        "start_text":"Выберите действие:\n/language\n/wd <секунд>\n/parallel_plots <int>; /table <int>\n/set_plot_config; \n/notify <on/off>; /filter <int>\n/check_plots_dirs 1\n/log <float> (часов)\n/harvester_restart 1\n/auto_power <min> <max>",
+        "start_text":"Выберите действие:\n/language\n/wd <секунд>\n/parallel_plots <int>; /table <int>\n/set_plot_config; \n/notify <on/off>; /filter <int>\n/check_plots_dirs 1\n/log <float> (часов)\n/harvester_restart 1\n/auto_power <min> <max>\n/set_win_progress <float>\n/balance_change <float>",
         "start_bot":"Бот запущен. Проверьте, возможно было отключение электричества",
         "start_with_params":"Запуск c параметрами","start_without_params":"Запуск без параметров",
         "cancel_dell_plots":"Сейчас произойдет очистка недосозданных плотов, нажмите ctrl+с для отмены",
@@ -137,7 +137,7 @@ english = {'chia_stat': 'Chia status', 'get_balance': 'Show balance', 'den': 'da
         'long_ping': 'Long response from the plot:', 'filter_pass': 'sec.The filter passed:', 'wallet_in': 'Replenishment of the wallet on:', 'sec': 's.', 
         'no_plotted': 'Nothing was sown', 'not_find_plot_file': 'Did not find a file with plots', 'clear_plot': 'Cleaning the countertop:', 
         'cant_dell_files_from': 'I could not delete files from', 'dell_log_in': 'Removed log file in', 'start_text': 
-        'Choose an action:\n/language\n/wd <seconds>\n/parallel_plots <int>; /table <int>\n/set_plot_config; \n/notify <on/off>; /filter <int>\n/check_plots_dirs 1\n/log <float> (hours)\n/harvester_restart 1\n/auto_power <min> <max>', 
+        'Choose an action:\n/language\n/wd <seconds>\n/parallel_plots <int>; /table <int>\n/set_plot_config; \n/notify <on/off>; /filter <int>\n/check_plots_dirs 1\n/log <float> (hours)\n/harvester_restart 1\n/auto_power <min> <max>\n/set_win_progress <float>\n/balance_change <float>', 
         'start_bot': 'Bot is running.Check, it may have been disconnected electricity', 'start_with_params': 'Launch with parameters', 
         'start_without_params': 'Running without parameters', 'cancel_dell_plots': 'There will now be cleaned by false plots, press Ctrl + C to cancel', 
         'finished_move': 'Finished moving:', 'plots_from': 'plots out', 'time_done': 'Lead time:',

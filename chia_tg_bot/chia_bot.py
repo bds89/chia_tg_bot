@@ -23,7 +23,7 @@ PASSWORD, LANGUAGE = range(2)
 app = Flask(__name__)
 
 def socket_server(port):
-    print("socket server started at port "+str(port))
+    
     host = "0.0.0.0"
     port = int(port)
     
@@ -39,6 +39,7 @@ def socket_server(port):
     while try_n < 7:
         try:
             mySocket.bind((host,port))
+            print("socket server started at port "+str(host)+":"+str(port))
             break
         except(OSError): 
             time.sleep(10)
@@ -57,6 +58,8 @@ def socket_server(port):
                 safety_addr = True
                 node = key
         if not data or not safety_addr:
+            if not data: print("recieved bad data")
+            if not safety_addr: print("not safety_addr")
             conn.close()
             time.sleep(1)
             continue
@@ -70,6 +73,8 @@ def socket_server(port):
             data = eval(data)
             data = pickle.dumps(data)
             conn.sendall(data)
+            # print("data:")
+            # print((data))
     conn.close()
 
 #Харвестеры будут отправлять свои клавиатуры фулл ноде
@@ -2518,6 +2523,50 @@ def phase2time():
             if float(ph2) > ph2max: ph2max = float(ph2)
     return(ph2max*1.2)
 
+def adding_coin(adding_value, cli):
+    message_to_all("{0} {1}".format(LANG["wallet_in"], adding_value, None), None)
+    if round(adding_value, 2) == 0.25 or round(adding_value, 2) == 1.75:
+        globals()["WIN_PROGRESS"] = 0
+        globals()["WIN_reGRESS"] = 0
+    
+    convert = {"M":1, "G":1*10**3, "T":1*10**6, "P":1*10**9, "E":1*10**12}
+
+    shared_names = ["Local Harvester", "Remote Harvester for IP: 212.75.234.213"]
+    try:
+        start = cli.index("Local Harvester")
+        end = cli.index("Estimated network space") -1
+        total_size_of_plots = re.findall(r"Total size of plots: (\d*.\d*)\s([MGTPE])iB", cli)
+        size_of_plots = re.findall(r"(.*Harvester.*)\n.*\d+ plots of size: (\d*.\d*)\s([MGTPE])iB", cli)
+
+        share_size = 0
+        for string in size_of_plots:
+            if string[0] in shared_names: share_size += float(string[1])*convert[string[2]]
+        bds_money = (share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]]))*adding_value/3 + (1-(share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]])))*adding_value
+        bds_money = round(bds_money, 6)
+        cli1 = "no transaction"
+        cli2 = "no transaction"
+        other_money = round((adding_value - bds_money - 0.000001), 6)
+        if "XCH_ADDR_BDS89" in CONFIG_DICT and bds_money > 0.01:
+            cli1 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_BDS89"])).read()
+        if "XCH_ADDR_OTHER" in CONFIG_DICT and other_money > 0.01:
+            time.sleep(2)
+            cli2 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
+        # write to file, if havn't adresses
+        if "WRITE_BALANCES" in CONFIG_DICT and CONFIG_DICT["WRITE_BALANCES"] == True:
+            if not "XCH_ADDR_BDS89" in CONFIG_DICT and not "XCH_ADDR_OTHER" in CONFIG_DICT:
+                if os.path.exists(MONEY_PATCH):
+                    with open(MONEY_PATCH) as f:
+                        money = yaml.load(f.read(), Loader=yaml.FullLoader)
+                else:
+                    money = {"bds89":0, "other":0}
+                money["bds89"] += bds_money
+                money["other"] += other_money
+                with open(MONEY_PATCH, "w") as f:
+                    f.write(yaml.dump(money, sort_keys=False))
+        message_to_all("{0} {1}\n{2}\n{3} {4}\n{5}\nINFO:\n{6}".format("bds89: ", bds_money, cli1, "other: ", other_money, cli2, cli[start:end]), None)
+    except: print("Error in change balance")
+
+
 def watchdog():
     print("Watchdog started")
     while True:
@@ -2605,48 +2654,9 @@ def watchdog():
                             adding_value = new_balance - old_balance
                             old_balance = new_balance
                             print("Balance changed: +"+str(adding_value))
-                            message_to_all("{0} {1}".format(LANG["wallet_in"], adding_value, None), None)
-                            if round(adding_value) == 0.25 or round(adding_value) == 1.75:
-                                globals()["WIN_PROGRESS"] = 0
-                                globals()["WIN_reGRESS"] = 0
-                            
-                            convert = {"M":1, "G":1*10**3, "T":1*10**6, "P":1*10**9, "E":1*10**12}
 
-                            shared_names = ["Local Harvester", "Remote Harvester for IP: 212.75.234.213"]
-                            try:
-                                start = cli.index("Local Harvester")
-                                end = cli.index("Estimated network space") -1
-                                total_size_of_plots = re.findall(r"Total size of plots: (\d*.\d*)\s([MGTPE])iB", cli)
-                                size_of_plots = re.findall(r"(.*Harvester.*)\n.*\d+ plots of size: (\d*.\d*)\s([MGTPE])iB", cli)
-
-                                share_size = 0
-                                for string in size_of_plots:
-                                    if string[0] in shared_names: share_size += float(string[1])*convert[string[2]]
-                                bds_money = (share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]]))*adding_value/3 + (1-(share_size/(float(total_size_of_plots[0][0])*convert[total_size_of_plots[0][1]])))*adding_value
-                                bds_money = round(bds_money, 6)
-                                cli1 = "no transaction"
-                                cli2 = "no transaction"
-                                other_money = round((adding_value - bds_money - 0.000001), 6)
-                                if "XCH_ADDR_BDS89" in CONFIG_DICT and bds_money > 0.01:
-                                    cli1 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_BDS89"])).read()
-                                if "XCH_ADDR_OTHER" in CONFIG_DICT and other_money > 0.01:
-                                    time.sleep(2)
-                                    cli2 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
-                                # write to file, if havn't adresses
-                                if "WRITE_BALANCES" in CONFIG_DICT and CONFIG_DICT["WRITE_BALANCES"] == True:
-                                    if not "XCH_ADDR_BDS89" in CONFIG_DICT and not "XCH_ADDR_OTHER" in CONFIG_DICT:
-                                        if os.path.exists(MONEY_PATCH):
-                                            with open(MONEY_PATCH) as f:
-                                                money = yaml.load(f.read(), Loader=yaml.FullLoader)
-                                        else:
-                                            money = {"bds89":0, "other":0}
-                                        money["bds89"] += bds_money
-                                        money["other"] += other_money
-                                        with open(MONEY_PATCH, "w") as f:
-                                            f.write(yaml.dump(money, sort_keys=False))
-                                message_to_all("{0} {1}\n{2}\n{3} {4}\n{5}\nINFO:\n{6}".format("bds89: ", bds_money, cli1, "other: ", other_money, cli2, cli[start:end]), None)
-                            except: print("Error in change balance")
-                            
+                            adding_coin(adding_value=adding_value, cli=cli)
+     
                     else: old_balance = new_balance
 
                 stat = {}
@@ -2946,6 +2956,31 @@ def power_limit(arg=None):
     retur = {"text":text}
     return(retur)
 
+def balance_change(arg=None, farm=None):
+    if int(farm) != 1:
+        text = "Available only for full node"
+        retur = {"text":text}
+        return(retur)
+
+    if arg:
+        try:
+            arg = float(arg)
+        except(ValueError):
+            text = LANG["type"]+'/balance_change <float> (chia coins)'
+            retur = {"text":text}
+            return(retur)
+
+        cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
+        adding_coin(adding_value=arg, cli=cli)
+        text = ""
+        retur = {"text":text}
+        return(retur)
+    
+    else:
+        text = LANG["type"]+'/balance_change <float> (chia coins)'
+        retur = {"text":text}
+        return(retur)
+
 def harvester_restart(arg=None):
     if arg and int(arg)==1:
         command = '/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia start harvester -r'.split()
@@ -3145,6 +3180,7 @@ def my_command_handler(update: Update, context: CallbackContext):
                         '/check_plots_dirs':'check_plots_dirs("'+arg+'")',
                         '/pl':'power_limit("'+arg+'")',
                         '/pool':'change_pool("'+arg+'")',
+                        '/balance_change':'balance_change(arg="'+arg+'", farm='+str(context.user_data["farm"])+')',
                         '/harvester_restart':'harvester_restart("'+arg+'")',
                         '/auto_power':'auto_power_start(min="'+arg+'", max="'+arg2+'", chat_id='+chat_id+')',
                         '/restart':'restart()'}
@@ -3214,6 +3250,8 @@ def main() -> None:
     updater.dispatcher.add_handler(CommandHandler("harvester_restart", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("auto_power", my_command_handler, USERS_FILTER))
     updater.dispatcher.add_handler(CommandHandler("restart", my_command_handler, USERS_FILTER))
+    updater.dispatcher.add_handler(CommandHandler("balance_change", my_command_handler, USERS_FILTER))
+
 
     # Start the Bot
     updater.start_polling()
