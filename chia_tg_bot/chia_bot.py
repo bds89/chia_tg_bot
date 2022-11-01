@@ -371,6 +371,7 @@ def get_okex_bal():
                 globals()["usdt_exc_okex"][name] = exchange.fetchTicker(para)['ask']
 
 def get_balance():
+    keyboard = [[]]
     if "BINANCE_KEY" in CONFIG_DICT and "BINANCE_SECRET" in CONFIG_DICT:
         binance_thread_get_bal = threading.Thread(target=get_binance_bal)
         binance_thread_get_bal.start()
