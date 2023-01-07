@@ -382,8 +382,8 @@ def get_balance():
     flist = ['Sync status: ']
     fdict = {}
 
-    cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet show').read()
-    cli_fs = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
+    cli = os.popen('chia   wallet show').read()
+    cli_fs = os.popen('chia   farm summary').read()
     for i in range(len(flist)):
         n=cli.find(flist[i])+len(flist[i])
         k=cli.find('\n', n)
@@ -703,8 +703,8 @@ def get_status():
         text += "<b>Chia status:</b>\n"
         flist = ['Farming status: ','Total chia farmed: ','Block rewards: ','Plot count for all harvesters: ','Total size of plots: ','Estimated network space: ','Expected time to win: ']
         fdict = {}
-        # cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet show').read()
-        cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
+        # cli = os.popen('chia   wallet show').read()
+        cli = os.popen('chia   farm summary').read()
         # cli_remote = [0, 0]
         convert = {"M":1*10**12, "G":1*10**9, "T":1*10**6, "P":1*10**3, "E":1}
         try:
@@ -2492,11 +2492,17 @@ def smartdog():  #Отслеживаем изменение SMART дисков
                                         text = "Диск {0} ({1}), изменилось относительное значение {2} с {3} на {4}. Порог: {5}".format(dev, val[4], attr["name"], disk_smart_dict[dev][attr["name"]]["value"], attr["value"], attr["thresh"])
                                         message_to_all(text, True)
                                         disk_smart_dict[dev][attr["name"]]["value"] = attr["value"]
-                                    if disk_smart_dict[dev][attr["name"]]["raw"] < 1000 and disk_smart_dict[dev][attr["name"]]["raw"] != attr["raw"]["value"]:
+                                    if disk_smart_dict[dev][attr["name"]]["raw"] < 5000 \
+                                        and \
+                                    ((disk_smart_dict[dev][attr["name"]]["raw"] != attr["raw"]["value"] and attr["name"] != "Load_Cycle_Count" \
+                                        and \
+                                    attr["name"] != "Power-Off_Retract_Count") \
+                                        or \
+                                    (int(attr["raw"]["value"]) - int(disk_smart_dict[dev][attr["name"]]["raw"]) > 2)):
                                         text = "Диск {0} ({1}), изменилось абсолютное значение {2} с {3} на {4}".format(dev, val[4], attr["name"], disk_smart_dict[dev][attr["name"]]["raw"], attr["raw"]["value"])
                                         message_to_all(text, True)
                                         disk_smart_dict[dev][attr["name"]]["raw"] = attr["raw"]["value"]
-                                else: disk_smart_dict[dev][attr["name"]] = {"value":attr["value"], "raw":attr["raw"]["value"]}
+                            else: disk_smart_dict[dev][attr["name"]] = {"value":attr["value"], "raw":attr["raw"]["value"]}
                     else:
                         HAVNT_SMART.append(dev)
                         print("Диск {0} havn't smart data".format(dev))
@@ -2548,10 +2554,10 @@ def adding_coin(adding_value, cli):
         cli2 = "no transaction"
         other_money = round((adding_value - bds_money - 0.000001), 6)
         if "XCH_ADDR_BDS89" in CONFIG_DICT and bds_money > 0.01:
-            cli1 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_BDS89"])).read()
+            cli1 = os.popen('chia   wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_BDS89"])).read()
         if "XCH_ADDR_OTHER" in CONFIG_DICT and other_money > 0.01:
             time.sleep(2)
-            cli2 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
+            cli2 = os.popen('chia   wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
         # write to file, if havn't adresses
         if "WRITE_BALANCES" in CONFIG_DICT and CONFIG_DICT["WRITE_BALANCES"] == True:
             if not "XCH_ADDR_BDS89" in CONFIG_DICT and not "XCH_ADDR_OTHER" in CONFIG_DICT:
@@ -2643,8 +2649,8 @@ def watchdog():
                     message_to_all(text, True)
                 globals()["check_plotting_progress"]["time"] = datetime.datetime.now()
             if CONFIG_DICT["FULL_NODE"]:
-                cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet show').read()             
-                cli = cli + os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
+                cli = os.popen('chia   wallet show').read()             
+                cli = cli + os.popen('chia   farm summary').read()
                 #check balance
                 new_balance = re.findall(r"-Total Balance:\s+(\d+[.]\d+) xch", cli)
                 if new_balance:
@@ -2853,7 +2859,7 @@ def set_filter(arg=None, chat_id=None):
 def check_plots_dirs(arg=None):
     if arg and int(arg)==1:
     #сначала удалим директории в которых не найдем плотов
-        process = subprocess.run(['/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia plots show'], check=True, shell=True, stdout=subprocess.PIPE, universal_newlines=True)
+        process = subprocess.run(['chia   plots show'], check=True, shell=True, stdout=subprocess.PIPE, universal_newlines=True)
         output = process.stdout
         plot_dirs = re.findall(r"\n(/.*)", output)
         plot_dirs_dict = {}
@@ -2867,7 +2873,7 @@ def check_plots_dirs(arg=None):
         text = ""
         for dir, have_plot in plot_dirs_dict.items():
             if not have_plot:
-                process = subprocess.run(['/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia plots remove -d "'+dir+'"'], check=True, shell=True, stdout=subprocess.PIPE, universal_newlines=True)
+                process = subprocess.run(['chia   plots remove -d "'+dir+'"'], check=True, shell=True, stdout=subprocess.PIPE, universal_newlines=True)
                 text += "removed: "+dir+"\n"
                 plot_dirs.remove(dir)
     #добавим директории в которых найдем плоты
@@ -2879,7 +2885,7 @@ def check_plots_dirs(arg=None):
             for key in plots_on.keys():
                 match = re.findall(r"^(/.+)/plot-k\d{2}.+plot$", key)
                 if match and not match[0] in plot_dirs and not match[0] in added_dirs_list:
-                    process = subprocess.run(['/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia plots add -d "'+match[0]+'"'], check=True, shell=True, stdout=subprocess.PIPE, universal_newlines=True)
+                    process = subprocess.run(['chia   plots add -d "'+match[0]+'"'], check=True, shell=True, stdout=subprocess.PIPE, universal_newlines=True)
                     text += "added: "+match[0]+"\n"
                     added_dirs_list.append(match[0])
         if text == "\n":
@@ -2971,7 +2977,7 @@ def balance_change(arg=None, farm=None):
             retur = {"text":text}
             return(retur)
 
-        cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
+        cli = os.popen('chia   farm summary').read()
         adding_coin(adding_value=arg, cli=cli)
         text = ""
         retur = {"text":text}
@@ -2984,7 +2990,7 @@ def balance_change(arg=None, farm=None):
 
 def harvester_restart(arg=None):
     if arg and int(arg)==1:
-        command = '/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia start harvester -r'.split()
+        command = 'chia  start harvester -r'.split()
         p = subprocess.Popen(command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         text = p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
         retur = {"text":text}
@@ -2999,13 +3005,13 @@ def change_pool(arg=None):
         try:
             arg = int(arg)
             if arg == 0:
-                p = subprocess.Popen(['/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia plotnft leave -i 2'], shell=True, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                p = subprocess.Popen(['chia   plotnft leave -i 2'], shell=True, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
                 text = p.communicate("y" + '\n')[0]
                 retur = {"text":text}
                 return(retur)
         except(ValueError):
             if arg == "https://pool-ru.sweetchia.com" or arg == "https://eu1.pool.space":
-                p = subprocess.Popen(['/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia plotnft join -i 2 -u '+arg], shell=True, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                p = subprocess.Popen(['chia   plotnft join -i 2 -u '+arg], shell=True, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
                 text = p.communicate("y" + '\n')[0]
                 retur = {"text":text}
                 return(retur)
@@ -3032,7 +3038,7 @@ def set_win_progress(arg=None):
             return(retur)
         globals()["WIN_PROGRESS"] = arg/100
 
-        cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
+        cli = os.popen('chia   farm summary').read()
         try:
             #Посчитаем сколько осталось до выигрыша
             convert = {"M":1*10**12, "G":1*10**9, "T":1*10**6, "P":1*10**3, "E":1}
@@ -3329,7 +3335,7 @@ def plots_check_time(log):
 
     #         if round(float(matches[0])/1000000000000, 2) == 0.25 or round(float(matches[0])/1000000000000) == 2: globals()["WIN_PROGRESS"] = 0
 
-    #         cli = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia farm summary').read()
+    #         cli = os.popen('chia   farm summary').read()
     #         convert = {"M":1, "G":1*10**3, "T":1*10**6, "P":1*10**9, "E":1*10**12}
 
     #         shared_names = ["Local Harvester", "Remote Harvester for IP: 212.75.234.213"]
@@ -3348,10 +3354,10 @@ def plots_check_time(log):
     #             cli2 = "no transaction"
     #             other_money = round(((float(matches[0])/1000000000000) - bds_money - 0.000001), 6)
     #             if "XCH_ADDR_BDS89" in CONFIG_DICT and bds_money > 0.01:
-    #                 cli1 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_BDS89"])).read()
+    #                 cli1 = os.popen('chia   wallet send -a '+str(bds_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_BDS89"])).read()
     #             if "XCH_ADDR_OTHER" in CONFIG_DICT and other_money > 0.01:
     #                 time.sleep(2)
-    #                 cli2 = os.popen('/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
+    #                 cli2 = os.popen('chia   wallet send -a '+str(other_money)+' -t '+str(CONFIG_DICT["XCH_ADDR_OTHER"])).read()
     #             # write to file, if havn't adresses
     #             if "WRITE_BALANCES" in CONFIG_DICT and CONFIG_DICT["WRITE_BALANCES"] == True:
     #                 if not "XCH_ADDR_BDS89" in CONFIG_DICT and not "XCH_ADDR_OTHER" in CONFIG_DICT:
@@ -3534,7 +3540,7 @@ if __name__ == '__main__':
             send_magic_packet(*CONFIG_DICT["HARVESTER_MAC"])
         #Лог левел инфо
         if not os.path.exists(CONFIG_DICT["PLOTLOGPATCH"]):
-            command = '/usr/lib/chia-blockchain/resources/app.asar.unpacked/daemon/chia configure -log-level "INFO"'.split()
+            command = 'chia   configure -log-level "INFO"'.split()
             p = subprocess.Popen(command, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
             cli = p.communicate(CONFIG_DICT["SUDO_PASS"] + '\n')[0]
             print(cli)
